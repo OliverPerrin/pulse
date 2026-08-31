@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090a0d" />
+    <meta name="description" content="Pulse is the local-first desktop view for AI coding usage, remaining limits, reset times, tokens, and API-equivalent cost." />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'none'; base-uri 'self'" />
+    <title>Pulse — Local AI coding usage</title>
+    <link rel="icon" href="./assets/pulse-icon.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-noise" aria-hidden="true"></div>
+    <header class="site-header" id="site-header">
+      <a class="site-brand" href="#top" aria-label="Pulse home">
+        <img src="./assets/pulse-icon.png" alt="" />
+        <span><strong>PULSE</strong><small>Usage intelligence</small></span>
+      </a>
+      <nav aria-label="Website navigation">
+        <a href="#product">Product</a>
+        <a href="#local-first">Local-first</a>
+        <a href="#download">Download</a>
+      </nav>
+      <a class="nav-download" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.0/Pulse-0.1.0-arm64.dmg"><span>Download for Mac</span><i>↘</i></a>
+    </header>
+
+    <main id="top">
+      <section class="hero section-shell">
+        <div class="hero-copy" data-reveal>
+          <div class="eyebrow"><i></i><span>macOS first · local by design</span></div>
+          <h1>Know your limits<br /><span>before they stop the work.</span></h1>
+          <p>Pulse brings every coding account, usage window, token, model, and API-equivalent cost into one quiet desktop utility.</p>
+          <div class="hero-actions">
+            <a class="primary-cta" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.0/Pulse-0.1.0-arm64.dmg"><span class="cta-icon">⌘</span><span><strong>Download Pulse</strong><small>macOS · Apple silicon</small></span><i>↘</i></a>
+            <a class="secondary-cta" href="#product">See how it works <span>↓</span></a>
+          </div>
+          <div class="hero-trust"><span class="live-dot"></span><span>No login. No cloud account. No usage data leaves your Mac.</span></div>
+        </div>
+
+        <div class="product-stage" data-reveal data-delay="1" aria-label="Pulse desktop and menu bar preview">
+          <div class="stage-glow"></div>
+          <article class="desktop-preview">
+            <div class="window-bar"><span class="traffic"><i></i><i></i><i></i></span><span>Pulse</span><span class="window-status"><i></i> Synced</span></div>
+            <div class="desktop-screenshot-wrap"><img class="desktop-screenshot" src="./assets/pulse-dashboard-graph.jpg" alt="Pulse desktop dashboard showing the live usage graph, cost total, provider series, alerts, and sync pipeline" /></div>
+          </article>
+
+          <article class="tray-preview">
+            <header><span><img src="./assets/pulse-icon.png" alt="" /><strong>PULSE</strong></span><i>↗</i></header>
+            <div class="tray-total"><span>Cost · last 30 days</span><strong>$7,482.73</strong><small>API estimate</small></div>
+            <div class="tray-metrics"><span><small>Tokens</small><strong>10.42B</strong></span><span><small>Sessions</small><strong>247</strong></span></div>
+            <div class="tray-section"><label>Account limits</label><div><span>C1 · .codex<small>7D · Sep 5</small></span><b>53%</b></div><div><span>C2 · .codex-alt<small>5H / 7D · Sep 6</small></span><b>100/88%</b></div><div><span>C3 · .codex-alt2<small>30D · Sep 18</small></span><b class="danger">0%</b></div></div>
+            <footer><i></i><span>Updated just now</span><b>00:15</b></footer>
+          </article>
+        </div>
+      </section>
+
+      <section class="provider-rail" aria-label="Supported local adapters">
+        <span>READS YOUR EXISTING LOCAL TOOLS</span>
+        <div><i>◎</i> Codex</div><div><i>✳</i> Claude Code</div><div><i>⌘</i> Command Code</div><div><i>◒</i> Cursor</div><div><i>↗</i> OpenCode</div>
+      </section>
+
+      <section class="product-section section-shell" id="product">
+        <div class="section-intro" data-reveal><span class="section-number">01 / PRODUCT</span><h2>The full picture when you want it.<br /><em>The essential signal when you don’t.</em></h2></div>
+        <div class="feature-grid">
+          <article data-reveal><span class="feature-icon">◫</span><h3>Full desktop workspace</h3><p>The local dashboard you already know, now in a dedicated macOS window with accounts, models, history, tokens, costs, balances, and reset windows.</p><small>THE COMPLETE VIEW</small></article>
+          <article data-reveal data-delay="1"><span class="feature-icon">⌁</span><h3>Always-ready menu bar</h3><p>See every account’s active limits at a glance. Open the popover for per-window reset times, warnings, balances, and sync health without opening the main window.</p><small>ONE CLICK AWAY</small></article>
+          <article data-reveal data-delay="2"><span class="feature-icon">↻</span><h3>Live local adapters</h3><p>Pulse reads the same local provider state and transcript caches you already use, preserving last-good snapshots when one response arrives late.</p><small>NO NEW WORKFLOW</small></article>
+        </div>
+      </section>
+
+      <section class="local-section section-shell" id="local-first">
+        <div class="local-visual" data-reveal>
+          <div class="local-orbit orbit-a"></div><div class="local-orbit orbit-b"></div>
+          <div class="local-core"><img src="./assets/pulse-icon.png" alt="" /><strong>ON DEVICE</strong><small>127.0.0.1</small></div>
+          <span class="local-node node-one">Codex</span><span class="local-node node-two">Claude</span><span class="local-node node-three">OpenCode</span>
+        </div>
+        <div class="local-copy" data-reveal data-delay="1"><span class="section-number">02 / LOCAL-FIRST</span><h2>Your usage data stays<br />where your work happens.</h2><p>Pulse has no cloud account, no team layer, and no remote telemetry service. It reads aggregate usage locally and stores preferences on your device.</p><ul><li><i>✓</i><span><strong>No credentials copied</strong><small>Authentication files stay with each provider.</small></span></li><li><i>✓</i><span><strong>No cloud sync required</strong><small>The desktop app talks to its own loopback server.</small></span></li><li><i>✓</i><span><strong>Fail-soft snapshots</strong><small>Partial provider refreshes do not erase valid usage.</small></span></li></ul></div>
+      </section>
+
+      <section class="download-section section-shell" id="download" data-reveal>
+        <div class="download-glow"></div>
+        <img src="./assets/pulse-icon.png" alt="Pulse icon" />
+        <span class="section-number">PULSE FOR macOS</span>
+        <h2>Keep your limits in sight.</h2>
+        <p>Built first for Apple silicon. Windows and Linux follow after the macOS experience is settled.</p>
+        <a class="primary-cta" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.0/Pulse-0.1.0-arm64.dmg"><span class="cta-icon">⌘</span><span><strong>Download Pulse 0.1</strong><small>macOS 15+ · Apple silicon</small></span><i>↘</i></a>
+        <small class="release-note">Local development preview · unsigned build</small>
+      </section>
+    </main>
+
+    <footer class="site-footer section-shell"><a class="site-brand" href="#top"><img src="./assets/pulse-icon.png" alt="" /><span><strong>PULSE</strong><small>Usage intelligence</small></span></a><p>Local-first AI coding usage for macOS.</p><span>© 2026 Pulse</span></footer>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

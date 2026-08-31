@@ -1,0 +1,65 @@
+{
+  "name": "pulse-desktop",
+  "version": "0.1.0",
+  "description": "Local-first AI coding usage, limits, and cost intelligence.",
+  "author": "Oliver Perrin",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OliverPerrin/pulse.git"
+  },
+  "private": true,
+  "type": "module",
+  "main": "desktop/main.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "desktop": "node desktop/run-electron.cjs",
+    "desktop:smoke": "node desktop/run-electron.cjs --smoke-test",
+    "desktop:pack": "electron-builder --mac dir --arm64",
+    "desktop:dist": "electron-builder --mac dmg --arm64",
+    "site:build": "node scripts/build-marketing.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.usagepulse.desktop",
+    "productName": "Pulse",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "app.js",
+      "index.html",
+      "styles.css",
+      "server.mjs",
+      "LICENSE",
+      "desktop/**/*",
+      "marketing/**/*",
+      "Pulse-icon.icon/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "Pulse-icon.icon/Assets/Codex Image Aug 30, 2026, 05_58_15 PM.png",
+        "to": "pulse-icon.png"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "Pulse-icon.icon",
+      "identity": null,
+      "hardenedRuntime": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        }
+      ]
+    },
+    "artifactName": "Pulse-${version}-${arch}.${ext}"
+  }
+}

@@ -1,0 +1,381 @@
+import electronMain from 'electron/main';
+import electronCommon from 'electron/common';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const { app, BrowserWindow, ipcMain, Menu, screen, shell, Tray } = electronMain;
+const { nativeImage } = electronCommon;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectDir = path.dirname(__dirname);
+const isMac = process.platform === 'darwin';
+const smokeTest = process.argv.includes('--smoke-test');
+const preferredPort = Number(process.env.PULSE_DESKTOP_PORT) || 5187;
+const allowedTargets = new Set(['#overview', '#attention', '#limits', '#accounts', '#breakdown', '#activity-log']);
+
+let baseUrl = '';
+let mainWindow = null;
+let pulseServer = null;
+let tray = null;
+let trayWindow = null;
+let isQuitting = false;
+let trayStatus = { lowestRemaining: null, accounts: [], warningCount: 0, paused: false, fetchedAt: null };
+
+app.setName('Pulse');
+app.enableSandbox();
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+}
+
+function expandCliPath() {
+  const userHome = os.homedir();
+  const additions = [
+    path.join(userHome, '.local', 'bin'),
+    path.join(userHome, '.npm-global', 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin'
+  ];
+  const existing = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  process.env.PATH = [...new Set([...additions, ...existing])].join(path.delimiter);
+}
+
+function listen(server, port) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off('error', onError);
+      const address = server.address();
+      resolve(typeof address === 'object' && address ? address.port : port);
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+async function startLocalServer() {
+  expandCliPath();
+  ({ server: pulseServer } = await import('../server.mjs'));
+  let selectedPort;
+  try {
+    selectedPort = await listen(pulseServer, preferredPort);
+  } catch (error) {
+    if (error?.code !== 'EADDRINUSE') throw error;
+    selectedPort = await listen(pulseServer, 0);
+  }
+  baseUrl = `http://127.0.0.1:${selectedPort}`;
+  return baseUrl;
+}
+
+function iconPath() {
+  if (app.isPackaged) return path.join(process.resourcesPath, 'pulse-icon.png');
+  return path.join(projectDir, 'Pulse-icon.icon', 'Assets', 'Codex Image Aug 30, 2026, 05_58_15 PM.png');
+}
+
+function rendererPreferences({ backgroundThrottling = true } = {}) {
+  return {
+    preload: path.join(__dirname, 'preload.cjs'),
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: true,
+    webviewTag: false,
+    backgroundThrottling,
+    partition: 'persist:pulse'
+  };
+}
+
+function secureWindow(window) {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url) && !url.startsWith(baseUrl)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  window.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(baseUrl)) event.preventDefault();
+  });
+}
+
+async function createMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
+  mainWindow = new BrowserWindow({
+    title: 'Pulse',
+    width: 1440,
+    height: 900,
+    minWidth: 1060,
+    minHeight: 700,
+    show: false,
+    backgroundColor: '#090a0d',
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    trafficLightPosition: isMac ? { x: 17, y: 19 } : undefined,
+    icon: iconPath(),
+    webPreferences: rendererPreferences()
+  });
+  secureWindow(mainWindow);
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('pulse:fullscreen-changed', true));
+  mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('pulse:fullscreen-changed', false));
+  await mainWindow.loadURL(`${baseUrl}/?surface=desktop`);
+  mainWindow.webContents.send('pulse:fullscreen-changed', mainWindow.isFullScreen());
+  if (!smokeTest) mainWindow.show();
+  return mainWindow;
+}
+
+function normalizedTarget(target) {
+  return typeof target === 'string' && allowedTargets.has(target) ? target : '#overview';
+}
+
+async function showMainWindow(target = '#overview') {
+  const window = await createMainWindow();
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+  window.webContents.send('pulse:navigate', normalizedTarget(target));
+  if (trayWindow?.isVisible()) trayWindow.hide();
+}
+
+async function createTrayWindow() {
+  trayWindow = new BrowserWindow({
+    title: 'Pulse menu bar',
+    width: 420,
+    height: 640,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: true,
+    alwaysOnTop: true,
+    backgroundColor: '#00000000',
+    webPreferences: rendererPreferences({ backgroundThrottling: false })
+  });
+  secureWindow(trayWindow);
+  trayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  trayWindow.on('blur', () => {
+    if (!trayWindow.webContents.isDevToolsOpened()) trayWindow.hide();
+  });
+  trayWindow.on('closed', () => { trayWindow = null; });
+  await trayWindow.loadURL(`${baseUrl}/?surface=tray`);
+  return trayWindow;
+}
+
+function positionTrayWindow(bounds) {
+  if (!trayWindow) return;
+  const display = screen.getDisplayNearestPoint({ x: Math.round(bounds.x), y: Math.round(bounds.y) });
+  const { workArea } = display;
+  const [windowWidth, windowHeight] = trayWindow.getSize();
+  const centeredX = Math.round(bounds.x + bounds.width / 2 - windowWidth / 2);
+  const x = Math.max(workArea.x + 8, Math.min(centeredX, workArea.x + workArea.width - windowWidth - 8));
+  const below = Math.round(bounds.y + bounds.height + 6);
+  const y = below + windowHeight <= workArea.y + workArea.height
+    ? below
+    : Math.round(bounds.y - windowHeight - 6);
+  trayWindow.setPosition(x, y, false);
+}
+
+function toggleTrayWindow(bounds = tray?.getBounds()) {
+  if (!trayWindow || !bounds) return;
+  if (trayWindow.isVisible()) {
+    trayWindow.hide();
+    return;
+  }
+  positionTrayWindow(bounds);
+  trayWindow.show();
+  trayWindow.focus();
+}
+
+function updateTrayPresentation() {
+  if (!tray) return;
+  const remaining = Number.isFinite(trayStatus.lowestRemaining) ? `${Math.round(trayStatus.lowestRemaining)}%` : '—';
+  const health = trayStatus.paused ? 'sync paused' : 'sync healthy';
+  const warnings = trayStatus.warningCount === 1 ? '1 warning' : `${trayStatus.warningCount} warnings`;
+  const accountTitle = trayStatus.accounts.map((account, index) => {
+    const values = account.windows.map((window) => Math.round(window.remaining)).join('/');
+    return values ? `C${index + 1} ${values}%` : `C${index + 1} —`;
+  }).join(' · ');
+  const accountTooltip = trayStatus.accounts.map((account, index) => {
+    const windows = account.windows.map((window) => `${window.tag} ${Math.round(window.remaining)}%`).join(', ');
+    return `C${index + 1} ${account.profile}: ${windows || 'not reported'}`;
+  }).join(' · ');
+  tray.setToolTip(`Pulse · ${accountTooltip || `${remaining} lowest headroom`} · ${warnings} · ${health}`);
+  if (isMac) tray.setTitle(accountTitle, { fontType: 'monospacedDigit' });
+}
+
+function trayMenu() {
+  const remaining = Number.isFinite(trayStatus.lowestRemaining) ? `${Math.round(trayStatus.lowestRemaining)}% lowest headroom` : 'Waiting for usage snapshot';
+  const accountItems = trayStatus.accounts.map((account, index) => ({
+    label: `C${index + 1} ${account.profile} · ${account.windows.map((window) => `${window.tag} ${Math.round(window.remaining)}%`).join(' · ') || 'not reported'}`,
+    enabled: false
+  }));
+  return Menu.buildFromTemplate([
+    ...(accountItems.length ? accountItems : [{ label: remaining, enabled: false }]),
+    { label: trayStatus.paused ? 'Sync paused' : 'Sync healthy', enabled: false },
+    { type: 'separator' },
+    { label: 'Open Pulse', click: () => void showMainWindow('#overview') },
+    { label: 'Sync now', click: () => {
+      mainWindow?.webContents.send('pulse:sync');
+      trayWindow?.webContents.send('pulse:sync');
+    } },
+    ...(isMac ? [{
+      label: 'Launch at login',
+      type: 'checkbox',
+      checked: app.getLoginItemSettings().openAtLogin,
+      click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked })
+    }] : []),
+    { type: 'separator' },
+    { label: 'Quit Pulse', role: 'quit' }
+  ]);
+}
+
+function createTray() {
+  const source = nativeImage.createFromPath(iconPath());
+  const image = source.resize({ width: isMac ? 19 : 20, height: isMac ? 19 : 20, quality: 'best' });
+  tray = new Tray(image);
+  tray.setToolTip('Pulse · loading local usage');
+  tray.on('click', (_event, bounds) => toggleTrayWindow(bounds));
+  tray.on('right-click', () => tray.popUpContextMenu(trayMenu()));
+  updateTrayPresentation();
+  if (isMac && app.dock) app.dock.setIcon(source);
+}
+
+function registerIpc() {
+  const fromPulse = (event) => String(event.senderFrame?.url || '').startsWith(baseUrl);
+  ipcMain.on('pulse:open-main', (event, target) => {
+    if (fromPulse(event)) void showMainWindow(normalizedTarget(target));
+  });
+  ipcMain.on('pulse:hide-tray', (event) => {
+    if (fromPulse(event)) trayWindow?.hide();
+  });
+  ipcMain.on('pulse:tray-status', (event, payload) => {
+    if (!fromPulse(event) || !payload || typeof payload !== 'object') return;
+    const lowestRemaining = Number(payload.lowestRemaining);
+    const accounts = Array.isArray(payload.accounts) ? payload.accounts.slice(0, 8).map((account, index) => ({
+      id: String(account?.id || `codex-account-${index + 1}`).slice(0, 80),
+      profile: String(account?.profile || `Codex ${index + 1}`).slice(0, 80),
+      plan: String(account?.plan || 'Unknown').slice(0, 40),
+      windows: Array.isArray(account?.windows) ? account.windows.slice(0, 4).map((window) => ({
+        tag: String(window?.tag || 'LIVE').slice(0, 12),
+        label: String(window?.label || 'Current window').slice(0, 80),
+        remaining: Math.max(0, Math.min(100, Number(window?.remaining) || 0)),
+        reset: String(window?.reset || 'reset time unavailable').slice(0, 100)
+      })) : []
+    })) : [];
+    trayStatus = {
+      lowestRemaining: Number.isFinite(lowestRemaining) ? Math.max(0, Math.min(100, lowestRemaining)) : null,
+      accounts,
+      warningCount: Math.max(0, Math.min(99, Number(payload.warningCount) || 0)),
+      paused: Boolean(payload.paused),
+      fetchedAt: Number(payload.fetchedAt) || null
+    };
+    updateTrayPresentation();
+  });
+}
+
+function createApplicationMenu() {
+  const template = [
+    ...(isMac ? [{
+      label: 'Pulse',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Open Pulse', accelerator: 'CmdOrCtrl+O', click: () => void showMainWindow('#overview') },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }] : []),
+    { label: 'View', submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }, ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' }])] },
+    { role: 'windowMenu' }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+async function bootstrap() {
+  await startLocalServer();
+  registerIpc();
+  createApplicationMenu();
+  await Promise.all([createMainWindow(), createTrayWindow()]);
+  createTray();
+
+  if (smokeTest) {
+    await mainWindow.webContents.executeJavaScript(`document.querySelector('.brand').style.transition = 'none'`);
+    mainWindow.webContents.send('pulse:fullscreen-changed', true);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const fullscreenLogoProbe = await mainWindow.webContents.executeJavaScript(`({
+      fullscreenClass: document.body.classList.contains('desktop-fullscreen'),
+      transform: getComputedStyle(document.querySelector('.brand')).transform
+    })`);
+    mainWindow.webContents.send('pulse:fullscreen-changed', false);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const windowedLogoProbe = await mainWindow.webContents.executeJavaScript(`({
+      fullscreenClass: document.body.classList.contains('desktop-fullscreen'),
+      transform: getComputedStyle(document.querySelector('.brand')).transform
+    })`);
+    const [mainProbe, trayProbe] = await Promise.all([
+      mainWindow.webContents.executeJavaScript(`({
+        bridgeReady: Boolean(window.pulseDesktop),
+        nodeIsolated: typeof window.require === 'undefined' && typeof window.process === 'undefined',
+        desktopSurface: document.body.classList.contains('desktop-app-surface'),
+        logoOffsetReady: getComputedStyle(document.querySelector('.brand')).transform !== 'none'
+      })`),
+      trayWindow.webContents.executeJavaScript(`({
+        bridgeReady: Boolean(window.pulseDesktop),
+        compactMode: document.body.classList.contains('compact-mode'),
+        resetTimesVisible: document.querySelector('#compact-headroom')?.innerText.includes('reset') || false,
+        accountLimitCount: document.querySelectorAll('#compact-headroom .compact-account-limit').length,
+        remainingMeterCount: document.querySelectorAll('#compact-headroom .compact-window-meter').length,
+        fitsWindow: document.documentElement.scrollHeight <= document.documentElement.clientHeight
+      })`)
+    ]);
+    const result = {
+      baseUrl,
+      mainLoaded: mainWindow?.webContents.getURL().includes('surface=desktop') || false,
+      trayLoaded: trayWindow?.webContents.getURL().includes('surface=tray') || false,
+      iconLoaded: !nativeImage.createFromPath(iconPath()).isEmpty(),
+      rendererSandboxed: mainProbe.nodeIsolated && trayProbe.bridgeReady,
+      mainBridgeReady: mainProbe.bridgeReady && mainProbe.desktopSurface && mainProbe.logoOffsetReady,
+      fullscreenLogoResponsive: fullscreenLogoProbe.fullscreenClass
+        && fullscreenLogoProbe.transform === 'matrix(1, 0, 0, 1, 0, 0)'
+        && !windowedLogoProbe.fullscreenClass
+        && windowedLogoProbe.transform !== fullscreenLogoProbe.transform,
+      trayCompactReady: trayProbe.compactMode && trayProbe.resetTimesVisible && trayProbe.accountLimitCount >= 3 && trayProbe.remainingMeterCount >= trayProbe.accountLimitCount && trayProbe.fitsWindow,
+      trayStatusReported: Number.isFinite(trayStatus.lowestRemaining) && trayStatus.accounts.length >= 3,
+      menuBarAllAccountsReady: /^C1 .+ · C2 .+ · C3 /.test(tray.getTitle())
+    };
+    console.log(`PULSE_SMOKE ${JSON.stringify(result)}`);
+    isQuitting = true;
+    setTimeout(() => app.quit(), 120);
+  }
+}
+
+app.on('second-instance', () => { void showMainWindow('#overview'); });
+app.on('activate', () => { void showMainWindow('#overview'); });
+app.on('before-quit', () => { isQuitting = true; });
+app.on('will-quit', () => {
+  if (pulseServer?.listening) pulseServer.close();
+});
+app.on('window-all-closed', () => {
+  // Pulse remains available in the menu bar until the user explicitly quits.
+});
+
+app.whenReady().then(bootstrap).catch((error) => {
+  console.error('Pulse failed to start', error);
+  isQuitting = true;
+  app.quit();
+});

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a0b0e" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'none'; base-uri 'self'" />
+    <title>Usage Pulse — AI coding usage</title>
+    <link rel="icon" href="/Pulse-icon.icon/Assets/Codex%20Image%20Aug%2030,%202026,%2005_58_15%20PM.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="boot-screen" id="boot-screen" aria-hidden="true">
+      <div class="boot-lockup"><span class="brand-mark brand-mark-large"><img src="/Pulse-icon.icon/Assets/Codex%20Image%20Aug%2030,%202026,%2005_58_15%20PM.png" alt="" /></span><span>USAGE PULSE</span></div>
+      <div class="boot-line"><span></span></div>
+      <p>Waking local adapters</p>
+    </div>
+
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="#top" aria-label="Usage Pulse home">
+          <span class="brand-mark"><img src="/Pulse-icon.icon/Assets/Codex%20Image%20Aug%2030,%202026,%2005_58_15%20PM.png" alt="" /></span>
+          <span class="brand-copy"><span class="brand-name">PULSE</span><small>Usage intelligence</small></span>
+        </a>
+
+        <button class="workspace-switcher" id="workspace-switcher" type="button" aria-label="Switch workspace" aria-expanded="false" aria-controls="workspace-menu">
+          <span class="workspace-avatar">OP</span>
+          <span class="workspace-copy"><strong>Oliver's local</strong><small>Personal workspace</small></span>
+          <span class="icon" data-icon="chevrons"></span>
+        </button>
+        <div class="workspace-menu" id="workspace-menu" hidden>
+          <div class="workspace-menu-head"><span>Workspaces</span><small>Local views</small></div>
+          <div class="workspace-list" id="workspace-list"></div>
+          <button class="workspace-add" id="add-workspace" type="button"><span class="icon" data-icon="plus"></span><span>Create workspace</span></button>
+        </div>
+
+        <nav class="nav-list">
+          <a class="nav-item active" href="#overview"><span class="icon" data-icon="grid"></span><span>Overview</span><em>01</em></a>
+          <a class="nav-item" href="#attention"><span class="icon" data-icon="alert"></span><span>Attention</span><em id="nav-alert-count">00</em></a>
+          <a class="nav-item" href="#limits"><span class="icon" data-icon="shield"></span><span>Limits</span><em>02</em></a>
+          <a class="nav-item" href="#accounts"><span class="icon" data-icon="layers"></span><span>Accounts</span><em>03</em></a>
+          <a class="nav-item" href="#breakdown"><span class="icon" data-icon="bar-chart"></span><span>Models</span><em>04</em></a>
+          <a class="nav-item" href="#activity-log"><span class="icon" data-icon="activity"></span><span>Activity</span><em class="nav-live-dot"></em></a>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="sidebar-status"><span class="status-dot"></span><span><strong>Local sync online</strong><small>Polling every 15 sec</small></span></div>
+          <button class="nav-item sidebar-action" id="sidebar-compact-button" type="button"><span class="icon" data-icon="panel"></span><span>Compact view</span></button>
+          <button class="nav-item sidebar-action" id="settings-button" type="button" aria-controls="settings-panel" aria-expanded="false"><span class="icon" data-icon="settings"></span><span>Settings</span></button>
+          <button class="profile-button" type="button" aria-label="Open profile"><span>OP</span><small>Oliver Perrin</small><b>⌘K</b></button>
+        </div>
+      </aside>
+
+      <main class="main-content" id="top">
+        <header class="topbar">
+          <div class="breadcrumb"><span class="mobile-menu icon" data-icon="menu"></span><span class="crumb-muted">Workspace</span><span class="crumb-slash">/</span><strong>Usage</strong></div>
+          <div class="topbar-actions">
+            <span class="topbar-time"><span class="status-dot"></span><span id="topbar-sync-label">Updated just now</span></span>
+            <button class="icon-button" id="topbar-refresh" type="button" aria-label="Refresh usage" title="Refresh usage"><span class="icon" data-icon="refresh"></span></button>
+            <button class="icon-button" id="compact-view-button" type="button" aria-label="Open compact view" title="Compact menu-bar view"><span class="icon" data-icon="panel"></span></button>
+            <button class="icon-button" id="notifications-button" type="button" aria-label="Open notifications" aria-controls="notifications-panel" aria-expanded="false"><span class="icon" data-icon="bell"></span><i class="notification-dot" id="notification-dot"></i></button>
+          </div>
+        </header>
+
+        <div class="page-wrap">
+          <section class="page-heading" id="overview">
+            <div>
+              <div class="eyebrow"><span class="eyebrow-line"></span><span>Unified telemetry</span></div>
+              <h1>Usage <span>at a glance.</span></h1>
+              <p>One live view across every coding account, model, and local session.</p>
+            </div>
+            <div class="heading-actions">
+              <div class="range-control" role="group" aria-label="Date range">
+                <button type="button" data-range="7">7 days</button>
+                <button type="button" data-range="30" class="active">30 days</button>
+                <button type="button" data-range="90">90 days</button>
+                <button type="button" data-range="lifetime">Lifetime</button>
+              </div>
+              <button class="sync-button" id="sync-button" type="button"><span class="icon" data-icon="refresh"></span><span>Sync all</span></button>
+            </div>
+          </section>
+
+          <section class="connection-banner" aria-label="Connection status">
+            <div class="banner-main"><span class="banner-pulse"><i></i><i></i><i></i></span><div><strong>Everything is flowing</strong><span><b id="connected-count">5</b> providers connected · <b>3</b> Codex accounts in one timeline</span></div></div>
+            <div class="banner-meta"><span class="mono" id="last-sync-text">LAST SYNC 00:00:00</span><span class="banner-divider"></span><button type="button" id="live-toggle"><span class="status-dot"></span><span>Live mode</span><span class="icon" data-icon="chevron-down"></span></button></div>
+          </section>
+
+          <section class="attention-section" id="attention">
+            <div class="section-heading-row"><div><span class="section-label">What needs you</span><h2>Alerts &amp; headroom</h2></div><button class="text-button" type="button" id="open-alerts">Open notification center <span class="icon" data-icon="arrow-right"></span></button></div>
+            <div class="attention-grid" id="attention-grid"></div>
+          </section>
+
+          <section class="overview-grid">
+            <article class="card chart-card">
+              <div class="card-topline">
+                <div><span class="section-label">API estimate</span><h2>Daily cost</h2></div>
+                <div class="chart-tools">
+                  <div class="metric-toggle" role="group" aria-label="Chart metric"><button class="active" type="button" data-metric="cost">Cost</button><button type="button" data-metric="tokens">Tokens</button></div>
+                  <div class="legend" id="chart-legend"></div>
+                </div>
+              </div>
+              <div class="chart-layout">
+                <div class="summary-side">
+                  <span class="date-range" id="date-range">Jul 26 — Aug 24</span>
+                  <div class="total-cost"><span id="total-cost">$2,819.14</span><span class="estimated-mark" id="total-metric-label">API estimate</span></div>
+                  <div class="delta-up value-basis"><span class="icon" data-icon="info"></span><strong id="cost-delta">API estimate</strong><span id="metric-delta-label">from observed tokens</span><button id="value-help" type="button" aria-label="Explain value terminology">Definitions</button></div>
+                  <div class="summary-rule"></div>
+                  <div class="provider-breakdown" id="provider-breakdown"></div>
+                </div>
+                <div class="chart-area" id="chart-area">
+                  <div class="chart-y-labels"><span id="chart-max-label">$300</span><span>$200</span><span>$100</span><span>$0</span></div>
+                  <svg class="usage-chart" id="usage-chart" viewBox="0 0 760 270" role="img" aria-label="Daily usage chart">
+                    <defs>
+                      <linearGradient id="area-codex" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#e6e8eb" stop-opacity=".16"/><stop offset="100%" stop-color="#e6e8eb" stop-opacity="0"/></linearGradient>
+                      <linearGradient id="area-claude" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ff825f" stop-opacity=".2"/><stop offset="100%" stop-color="#ff825f" stop-opacity="0"/></linearGradient>
+                      <linearGradient id="area-commandcode" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#b99cff" stop-opacity=".16"/><stop offset="100%" stop-color="#b99cff" stop-opacity="0"/></linearGradient>
+                      <linearGradient id="area-cursor" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#79a7ff" stop-opacity=".15"/><stop offset="100%" stop-color="#79a7ff" stop-opacity="0"/></linearGradient>
+                      <linearGradient id="area-opencode" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#64dcc4" stop-opacity=".15"/><stop offset="100%" stop-color="#64dcc4" stop-opacity="0"/></linearGradient>
+                    </defs>
+                    <g class="chart-grid-lines"><line x1="0" y1="24" x2="760" y2="24"></line><line x1="0" y1="96" x2="760" y2="96"></line><line x1="0" y1="168" x2="760" y2="168"></line><line x1="0" y1="240" x2="760" y2="240"></line></g>
+                    <g id="chart-series"></g>
+                    <line id="chart-hover-line" class="chart-hover-line" x1="0" y1="24" x2="0" y2="240" opacity="0"></line>
+                    <g id="chart-dots"></g>
+                  </svg>
+                  <div class="chart-x-labels" id="chart-x-labels"></div>
+                  <div class="chart-tooltip" id="chart-tooltip" hidden></div>
+                </div>
+              </div>
+            </article>
+
+            <aside class="card pulse-card" id="live-pulse">
+              <div class="pulse-card-top"><div><span class="section-label">Background telemetry</span><h2>Sync pipeline</h2></div><span class="live-chip"><i></i> LIVE</span></div>
+              <div class="pulse-orbit"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-center"><span class="brand-mark brand-mark-small"><img src="/Pulse-icon.icon/Assets/Codex%20Image%20Aug%2030,%202026,%2005_58_15%20PM.png" alt="" /></span><strong id="pulse-count">05</strong><small>adapters</small></div><span class="orbit-node node-a"></span><span class="orbit-node node-b"></span><span class="orbit-node node-c"></span></div>
+              <div class="pipeline" id="pipeline"></div>
+              <div class="pulse-foot"><span class="icon" data-icon="clock"></span><span>Next poll in</span><strong id="next-poll">00:14</strong><button type="button" id="pause-live" aria-label="Pause live sync"><span class="icon" data-icon="pause"></span></button></div>
+            </aside>
+          </section>
+
+          <section class="stats-strip" id="stats-strip"></section>
+          <p class="value-disclosure"><span class="icon" data-icon="info"></span><span>Cost is an API estimate from observed tokens, like T3 Code usage. Subscription charges are separate. Credit balances are provider-reported.</span></p>
+
+          <section class="section-block limits-section" id="limits">
+            <div class="section-heading-row"><div><span class="section-label">Provider-reported plan data</span><h2>Limits, headroom &amp; balances</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Windows refresh with each sync</span><button class="text-button" type="button" id="limit-help">About limits <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
+            <div class="limits-subheading"><span>Codex CLI profiles</span><span class="mono">3 homes · exact rate-limit snapshots</span></div>
+            <div class="codex-accounts-grid" id="codex-accounts-grid"></div>
+            <div class="limits-subheading limits-subheading-secondary"><span>Other provider windows</span><span class="mono">Plan-specific headroom</span></div>
+            <div class="limits-grid" id="limits-grid"></div>
+          </section>
+
+          <section class="section-block" id="accounts">
+            <div class="section-heading-row"><div><span class="section-label">Provider adapters</span><h2>Connected accounts</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> All systems operational</span><button class="text-button" type="button" id="manage-accounts">Manage <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
+            <div class="account-grid" id="account-grid"></div>
+          </section>
+
+          <section class="details-grid">
+            <article class="card breakdown-card" id="breakdown">
+              <div class="section-heading-row compact"><div><span class="section-label">Across all providers</span><h2>Model breakdown</h2></div><div class="table-controls"><div class="table-toggle"><button type="button" class="active" data-table-mode="model">Model</button><button type="button" data-table-mode="day">Day</button></div><button class="icon-button small" type="button" aria-label="Download breakdown"><span class="icon" data-icon="download"></span></button></div></div>
+              <div class="table-filter-row"><div class="provider-filters" role="group" aria-label="Filter providers"><button type="button" class="active" data-filter="all">All</button><button type="button" data-filter="codex">Codex</button><button type="button" data-filter="claude">Claude</button><button type="button" data-filter="commandcode">Command</button><button type="button" data-filter="cursor">Cursor</button><button type="button" data-filter="opencode">OpenCode</button></div><label class="search-box"><span class="icon" data-icon="search"></span><input id="model-search" type="search" placeholder="Filter models" /></label></div>
+              <div class="table-wrap"><table><thead><tr><th>Model / provider</th><th>Cost</th><th>Share</th><th>Tokens</th><th></th></tr></thead><tbody id="breakdown-body"></tbody></table></div>
+              <button class="load-more" type="button" id="load-more">View all models <span class="icon" data-icon="arrow-right"></span></button>
+            </article>
+
+            <aside class="card activity-card" id="activity-log">
+              <div class="section-heading-row compact"><div><span class="section-label">Just now</span><h2>Activity</h2></div><button class="icon-button small" type="button" aria-label="More activity"><span class="icon" data-icon="more"></span></button></div>
+              <div class="activity-list" id="activity-list"></div>
+              <button class="load-more" type="button" id="view-activity">Open activity log <span class="icon" data-icon="arrow-right"></span></button>
+            </aside>
+          </section>
+
+          <footer class="footer"><span>Usage Pulse <span class="footer-mark">✳</span></span><span class="mono">LOCAL-FIRST / v0.2</span><span>Modeled value is not billed spend.</span></footer>
+        </div>
+      </main>
+    </div>
+    <div class="panel-scrim" id="panel-scrim" hidden></div>
+
+    <aside class="side-panel" id="notifications-panel" aria-labelledby="notifications-title" hidden>
+      <div class="panel-head"><div><span class="section-label">Actionable events</span><h2 id="notifications-title">Notifications</h2></div><button class="icon-button panel-close" type="button" data-close-panel aria-label="Close notifications"><span class="icon" data-icon="x"></span></button></div>
+      <div class="panel-toolbar"><span id="notification-summary">No unread alerts</span><button type="button" id="mark-all-read">Mark all read</button></div>
+      <div class="notification-list" id="notification-list"></div>
+    </aside>
+
+    <aside class="side-panel settings-panel" id="settings-panel" aria-labelledby="settings-title" hidden>
+      <div class="panel-head"><div><span class="section-label">Dashboard preferences</span><h2 id="settings-title">Settings</h2></div><button class="icon-button panel-close" type="button" data-close-panel aria-label="Close settings"><span class="icon" data-icon="x"></span></button></div>
+      <form class="settings-form" id="settings-form">
+        <label class="setting-row"><span><strong>Live polling interval</strong><small>How often local adapters refresh.</small></span><select id="poll-interval"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option></select></label>
+        <label class="setting-row"><span><strong>Critical headroom alerts</strong><small>Notify when a usage window falls below 20%.</small></span><input id="notify-critical" type="checkbox" /></label>
+        <label class="setting-row"><span><strong>Sync notifications</strong><small>Show informational adapter events.</small></span><input id="notify-sync" type="checkbox" /></label>
+        <label class="setting-row"><span><strong>Compact view by default</strong><small>Open the menu-bar-style summary on launch.</small></span><input id="compact-default" type="checkbox" /></label>
+        <div class="settings-actions"><button class="secondary-button" id="enter-compact" type="button"><span class="icon" data-icon="panel"></span>Open compact view</button><button class="text-button" id="reset-settings" type="button">Restore defaults</button></div>
+      </form>
+      <div class="definition-card" id="value-definitions"><span class="section-label">Value definitions</span><dl><div><dt>API-equivalent value</dt><dd>Estimated token value at dashboard reference API rates. It is not an invoice.</dd></div><div><dt>Subscription spend</dt><dd>Recurring plan fees actually paid. Not inferred or included in this dashboard.</dd></div><div><dt>Modeled cache value avoided</dt><dd>Estimated uncached API value avoided by cache reads; not cash saved on a subscription.</dd></div><div><dt>Usage credits available</dt><dd>Remaining balance reported directly by the provider.</dd></div></dl></div>
+    </aside>
+
+    <dialog class="workspace-dialog" id="workspace-dialog">
+      <form id="workspace-form">
+        <div class="dialog-head"><div><span class="section-label">New local view</span><h2>Create workspace</h2></div><button class="icon-button" id="close-workspace-dialog" type="button" aria-label="Close"><span class="icon" data-icon="x"></span></button></div>
+        <label><span>Workspace name</span><input id="workspace-name" name="workspaceName" type="text" maxlength="32" placeholder="e.g. Decidio" required /></label>
+        <label><span>Workspace type</span><select id="workspace-type" name="workspaceType"><option value="Project workspace">Project workspace</option><option value="Team workspace">Team workspace</option><option value="Personal workspace">Personal workspace</option></select></label>
+        <div class="dialog-actions"><button class="secondary-button" id="cancel-workspace" type="button">Cancel</button><button class="primary-button" type="submit">Create workspace</button></div>
+      </form>
+    </dialog>
+
+    <section class="compact-dashboard" id="compact-dashboard" aria-label="Usage Pulse compact view">
+      <div class="compact-shell">
+        <header class="compact-head"><div class="compact-brand"><span class="brand-mark"><img src="/Pulse-icon.icon/Assets/Codex%20Image%20Aug%2030,%202026,%2005_58_15%20PM.png" alt="" /></span><span><strong>PULSE</strong><small id="compact-workspace-name">Oliver's local</small></span></div><div><button class="icon-button" id="compact-sync" type="button" aria-label="Sync now"><span class="icon" data-icon="refresh"></span></button><button class="icon-button" id="exit-compact" type="button" aria-label="Open full dashboard"><span class="icon" data-icon="arrow-up-right"></span></button></div></header>
+        <div class="compact-value"><span>Cost</span><strong id="compact-total">$0.00</strong><small id="compact-period">Last 30 days · API estimate</small></div>
+        <div class="compact-status" id="compact-status"></div>
+        <div class="compact-section"><div class="compact-section-head"><span id="compact-limits-title">Account limits</span><a href="#limits" id="compact-open-limits">Review</a></div><div id="compact-headroom"></div></div>
+        <div class="compact-section"><div class="compact-section-head"><span>Alerts</span><button type="button" id="compact-open-alerts">Open all</button></div><div id="compact-alerts"></div></div>
+        <footer class="compact-foot"><span class="status-dot"></span><span id="compact-sync-label">Live sync online</span><span id="compact-next-poll">00:15</span></footer>
+      </div>
+    </section>
+    <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-icon"><span class="icon" data-icon="check"></span></span><span id="toast-copy">Usage synced</span></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
