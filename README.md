@@ -5,7 +5,7 @@ A local-first macOS desktop app and usage dashboard for Codex, Claude Code, Comm
 ## Run the local dashboard
 
 ```bash
-cd usage-dashboard
+cd pulse
 npm start
 ```
 
@@ -20,14 +20,16 @@ Pulse is maintained as one monorepo at <https://github.com/OliverPerrin/pulse>. 
 ## Run the desktop app
 
 ```bash
-cd usage-dashboard
+cd pulse
 npm install
 npm run desktop
 ```
 
 Pulse opens the full dashboard in a native Electron window and keeps a menu-bar item alive when the main window closes. The menu-bar title shows the current limit percentages for every configured Codex account (`C1`, `C2`, and `C3`). Clicking it opens a compact per-account view with every active window, remaining percentage, reset time, warnings, balances, costs, tokens, and sync health. Right-click it to open Pulse, force a sync, control launch-at-login, or quit.
 
-The desktop renderer is sandboxed, has Node integration disabled, and communicates through a narrow preload bridge. It starts its own loopback-only server on port `5187`, falling back to an available ephemeral port if necessary. The regular `npm start` server remains independent on port `5173`.
+The desktop renderer is sandboxed, has Node integration disabled, and communicates through a narrow preload bridge. Packaged builds use a loopback-only server on port `5187`; `npm run desktop` uses its own development profile and port `5188`, so it can launch even while an installed build exists. Both fall back to an available ephemeral port if necessary. The regular `npm start` server remains independent on port `5173`.
+
+For normal daily use, mount the DMG and drag `Pulse.app` into `/Applications`. This lets macOS register the bundle and bundled icon normally. Quit an older Pulse process before replacing an existing copy. Keep `npm run desktop` for source development.
 
 ## Verify and package macOS
 
@@ -37,7 +39,7 @@ npm run desktop:pack
 npm run desktop:dist
 ```
 
-The Apple-silicon DMG is written to `release/Pulse-0.1.0-arm64.dmg`. This development artifact is intentionally unsigned; production distribution still needs an Apple Developer ID certificate and notarization.
+The Apple-silicon DMG is written to `release/Pulse-0.1.1-arm64.dmg`. This development artifact is intentionally unsigned; production distribution still needs an Apple Developer ID certificate and notarization.
 
 Versioned DMGs are attached to private GitHub Releases rather than committed to Git or bundled into the Vercel deployment. The current private release link requires GitHub access to the repository.
 

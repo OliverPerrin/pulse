@@ -1,5 +1,6 @@
 import electronMain from 'electron/main';
 import electronCommon from 'electron/common';
+import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,8 +12,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectDir = path.dirname(__dirname);
 const isMac = process.platform === 'darwin';
+const isDevelopment = !app.isPackaged;
 const smokeTest = process.argv.includes('--smoke-test');
-const preferredPort = Number(process.env.PULSE_DESKTOP_PORT) || 5187;
+const preferredPort = Number(process.env.PULSE_DESKTOP_PORT) || (isDevelopment ? 5188 : 5187);
 const allowedTargets = new Set(['#overview', '#attention', '#limits', '#accounts', '#breakdown', '#activity-log']);
 
 let baseUrl = '';
@@ -22,8 +24,16 @@ let tray = null;
 let trayWindow = null;
 let isQuitting = false;
 let trayStatus = { lowestRemaining: null, accounts: [], warningCount: 0, paused: false, fetchedAt: null };
+let applicationIcon = null;
 
 app.setName('Pulse');
+if (isDevelopment) {
+  const developmentUserData = smokeTest
+    ? path.join(os.tmpdir(), `pulse-smoke-${process.pid}`)
+    : path.join(app.getPath('appData'), 'Pulse Development');
+  mkdirSync(developmentUserData, { recursive: true });
+  app.setPath('userData', developmentUserData);
+}
 app.enableSandbox();
 
 if (!app.requestSingleInstanceLock()) {
@@ -75,7 +85,7 @@ async function startLocalServer() {
 
 function iconPath() {
   if (app.isPackaged) return path.join(process.resourcesPath, 'pulse-icon.png');
-  return path.join(projectDir, 'Pulse-icon.icon', 'Assets', 'Codex Image Aug 30, 2026, 05_58_15 PM.png');
+  return path.join(projectDir, 'marketing', 'assets', 'pulse-icon.png');
 }
 
 function rendererPreferences({ backgroundThrottling = true } = {}) {
@@ -127,7 +137,11 @@ async function createMainWindow() {
   mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('pulse:fullscreen-changed', false));
   await mainWindow.loadURL(`${baseUrl}/?surface=desktop`);
   mainWindow.webContents.send('pulse:fullscreen-changed', mainWindow.isFullScreen());
-  if (!smokeTest) mainWindow.show();
+  if (!smokeTest) {
+    mainWindow.show();
+    mainWindow.focus();
+    if (isMac) app.focus({ steal: true });
+  }
   return mainWindow;
 }
 
@@ -140,6 +154,7 @@ async function showMainWindow(target = '#overview') {
   if (window.isMinimized()) window.restore();
   window.show();
   window.focus();
+  if (isMac) app.focus({ steal: true });
   window.webContents.send('pulse:navigate', normalizedTarget(target));
   if (trayWindow?.isVisible()) trayWindow.hide();
 }
@@ -241,14 +256,13 @@ function trayMenu() {
 }
 
 function createTray() {
-  const source = nativeImage.createFromPath(iconPath());
+  const source = applicationIcon || nativeImage.createFromPath(iconPath());
   const image = source.resize({ width: isMac ? 19 : 20, height: isMac ? 19 : 20, quality: 'best' });
   tray = new Tray(image);
   tray.setToolTip('Pulse · loading local usage');
   tray.on('click', (_event, bounds) => toggleTrayWindow(bounds));
   tray.on('right-click', () => tray.popUpContextMenu(trayMenu()));
   updateTrayPresentation();
-  if (isMac && app.dock) app.dock.setIcon(source);
 }
 
 function registerIpc() {
@@ -307,6 +321,19 @@ function createApplicationMenu() {
 }
 
 async function bootstrap() {
+  applicationIcon = nativeImage.createFromPath(iconPath());
+  if (applicationIcon.isEmpty()) throw new Error(`Pulse icon could not be loaded from ${iconPath()}`);
+  if (isMac) {
+    app.setActivationPolicy('regular');
+    await app.dock?.show();
+    app.dock?.setIcon(applicationIcon);
+  }
+  app.setAboutPanelOptions({
+    applicationName: 'Pulse',
+    applicationVersion: app.getVersion(),
+    copyright: 'Copyright © 2026 Oliver Perrin',
+    website: 'https://github.com/OliverPerrin/pulse'
+  });
   await startLocalServer();
   registerIpc();
   createApplicationMenu();
@@ -348,6 +375,7 @@ async function bootstrap() {
       mainLoaded: mainWindow?.webContents.getURL().includes('surface=desktop') || false,
       trayLoaded: trayWindow?.webContents.getURL().includes('surface=tray') || false,
       iconLoaded: !nativeImage.createFromPath(iconPath()).isEmpty(),
+      dockIconVisible: !isMac || Boolean(app.dock?.isVisible()),
       rendererSandboxed: mainProbe.nodeIsolated && trayProbe.bridgeReady,
       mainBridgeReady: mainProbe.bridgeReady && mainProbe.desktopSurface && mainProbe.logoOffsetReady,
       fullscreenLogoResponsive: fullscreenLogoProbe.fullscreenClass
