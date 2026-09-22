@@ -63,4 +63,24 @@ Codex account windows and range usage are read directly from every configured `C
 
 Rate limits and account usage arrive through separate CLI responses. Pulse caches the last valid response for each channel for up to 24 hours, so a transient partial poll cannot turn a populated account into zero usage; cached values are explicitly labeled in the interface until a fresh snapshot returns.
 
-The Limits & windows section is adapter-shaped for provider-reported 5-hour, weekly, and 30-day windows. Other providers use the separated preview blueprint until they expose a local limit endpoint; Codex rows show an `Exact snapshot` badge when the CLI returns a live rate-limit response. Overall totals and daily series are recomputed from the selected 7/30/90-day or lifetime provider snapshot on every sync.
+## Polling and caching
+
+Both desktop surfaces — the main window and the menu-bar popover — poll `/api/usage` independently, so the server memoises each source for slightly less than one poll interval and collapses concurrent requests onto a single pass. The defaults can be overridden with environment variables:
+
+| Variable | Default | Covers |
+| --- | --- | --- |
+| `PULSE_SNAPSHOT_TTL_MS` | `4000` | The assembled snapshot, including de-duplication of simultaneous requests |
+| `PULSE_CODEX_TTL_MS` | `10000` | The three `codex app-server` rate-limit and usage probes |
+| `PULSE_OPENCODE_TTL_MS` | `60000` | The `opencode stats` invocation |
+
+Transcripts are streamed and pre-filtered on raw bytes rather than read into memory, so a multi-hundred-megabyte Codex rollout costs a bounded amount of memory to scan. Command Code transcripts are parsed once per file and reused until the file's size or mtime changes. Dashboard assets are served with an `ETag`, so a reload revalidates instead of re-downloading.
+
+A surface that is off screen keeps polling and keeps the menu-bar title current, but defers rebuilding its dashboard markup until it becomes visible again.
+
+The subscription command center shows each Codex account’s tightest reported allowance, every usage window, local reset times, credits, and snapshot freshness. Missing or expired allowances stay unreported. Other providers show only the plan and allowance metadata available locally; limits are never inferred from estimated API cost. Overall totals and daily series are recomputed from the selected 7/30/90-day or lifetime provider snapshot on every sync.
+
+## Dashboard visuals
+
+The full dashboard includes account gauges and an upcoming reset timeline, actual daily usage sparklines, a daily activity heatmap, provider-share donut, and token composition chart. Cost/token and date-range controls drive the usage views; subscription windows stay tied to the current provider snapshot. The heatmap shows at most 90 daily records and labels longer ranges. Model and daily breakdowns share provider and text filters.
+
+Run `npm test` for quota, reset, missing-data, cache, and desktop-bridge regressions. Run `npm run desktop:smoke` to verify both Electron surfaces against a real local snapshot.

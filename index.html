@@ -11,6 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/dashboard-insights.css" />
   </head>
   <body>
     <div class="boot-screen" id="boot-screen" aria-hidden="true">
@@ -40,7 +41,8 @@
         <nav class="nav-list">
           <a class="nav-item active" href="#overview"><span class="icon" data-icon="grid"></span><span>Overview</span><em>01</em></a>
           <a class="nav-item" href="#attention"><span class="icon" data-icon="alert"></span><span>Attention</span><em id="nav-alert-count">00</em></a>
-          <a class="nav-item" href="#limits"><span class="icon" data-icon="shield"></span><span>Limits</span><em>02</em></a>
+          <a class="nav-item" href="#limits"><span class="icon" data-icon="shield"></span><span>Subscriptions</span><em>02</em></a>
+          <a class="nav-item" href="#usage"><span class="icon" data-icon="bar-chart"></span><span>Usage insights</span><em>03</em></a>
           <a class="nav-item" href="#accounts"><span class="icon" data-icon="layers"></span><span>Accounts</span><em>03</em></a>
           <a class="nav-item" href="#breakdown"><span class="icon" data-icon="bar-chart"></span><span>Models</span><em>04</em></a>
           <a class="nav-item" href="#activity-log"><span class="icon" data-icon="activity"></span><span>Activity</span><em class="nav-live-dot"></em></a>
@@ -68,9 +70,9 @@
         <div class="page-wrap">
           <section class="page-heading" id="overview">
             <div>
-              <div class="eyebrow"><span class="eyebrow-line"></span><span>Unified telemetry</span></div>
-              <h1>Usage <span>at a glance.</span></h1>
-              <p>One live view across every coding account, model, and local session.</p>
+              <div class="eyebrow"><span class="eyebrow-line"></span><span>Your AI command center</span></div>
+              <h1>More clarity. <span>More headroom.</span></h1>
+              <p>Know what’s available, when it resets, and where your usage goes.</p>
             </div>
             <div class="heading-actions">
               <div class="range-control" role="group" aria-label="Date range">
@@ -84,8 +86,19 @@
           </section>
 
           <section class="connection-banner" aria-label="Connection status">
-            <div class="banner-main"><span class="banner-pulse"><i></i><i></i><i></i></span><div><strong>Everything is flowing</strong><span><b id="connected-count">5</b> providers connected · <b>3</b> Codex accounts in one timeline</span></div></div>
+            <div class="banner-main"><span class="banner-pulse"><i></i><i></i><i></i></span><div><strong id="connection-title">Reading local usage</strong><span><b id="connected-count">5</b> providers detected · <b id="codex-count">—</b> Codex accounts in one timeline</span></div></div>
             <div class="banner-meta"><span class="mono" id="last-sync-text">LAST SYNC 00:00:00</span><span class="banner-divider"></span><button type="button" id="live-toggle"><span class="status-dot"></span><span>Live mode</span><span class="icon" data-icon="chevron-down"></span></button></div>
+          </section>
+
+          <section class="command-metrics" id="command-metrics" aria-label="Usage summary"></section>
+
+          <section class="section-block limits-section" id="limits">
+            <div class="section-heading-row"><div><span class="section-label">01 / Account availability</span><h2>Subscription command center</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Windows refresh with each sync</span><button class="text-button" type="button" id="limit-help">About limits <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
+            <div class="limits-subheading"><span>Codex CLI profiles</span><span class="mono" id="account-limit-summary">Provider-reported windows</span></div>
+            <div class="limit-overview" id="limit-overview"></div>
+            <div class="codex-accounts-grid" id="codex-accounts-grid"></div>
+            <details class="other-limits" open><summary>Other providers <span>Plans, allowances &amp; data availability</span><span class="icon" data-icon="chevron-down"></span></summary><div class="limits-grid" id="limits-grid"></div></details>
+            <p class="limits-footnote">Each window is a separate allowance. The lowest remaining window is shown on each account’s gauge. Credits and subscription fees are separate.</p>
           </section>
 
           <section class="attention-section" id="attention">
@@ -93,6 +106,7 @@
             <div class="attention-grid" id="attention-grid"></div>
           </section>
 
+          <div class="section-heading-row usage-heading" id="usage"><div><span class="section-label">02 / Usage intelligence</span><h2>Usage over time</h2></div><span class="muted-small">Selected period · API estimates, not subscription charges</span></div>
           <section class="overview-grid">
             <article class="card chart-card">
               <div class="card-topline">
@@ -112,7 +126,7 @@
                 </div>
                 <div class="chart-area" id="chart-area">
                   <div class="chart-y-labels"><span id="chart-max-label">$300</span><span>$200</span><span>$100</span><span>$0</span></div>
-                  <svg class="usage-chart" id="usage-chart" viewBox="0 0 760 270" role="img" aria-label="Daily usage chart">
+                  <svg class="usage-chart" id="usage-chart" viewBox="0 0 760 270" preserveAspectRatio="none" role="img" aria-label="Daily usage chart">
                     <defs>
                       <linearGradient id="area-codex" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#e6e8eb" stop-opacity=".16"/><stop offset="100%" stop-color="#e6e8eb" stop-opacity="0"/></linearGradient>
                       <linearGradient id="area-claude" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ff825f" stop-opacity=".2"/><stop offset="100%" stop-color="#ff825f" stop-opacity="0"/></linearGradient>
@@ -139,19 +153,12 @@
             </aside>
           </section>
 
+          <section id="usage-insights" aria-label="Usage insights"></section>
           <section class="stats-strip" id="stats-strip"></section>
           <p class="value-disclosure"><span class="icon" data-icon="info"></span><span>Cost is an API estimate from observed tokens, like T3 Code usage. Subscription charges are separate. Credit balances are provider-reported.</span></p>
 
-          <section class="section-block limits-section" id="limits">
-            <div class="section-heading-row"><div><span class="section-label">Provider-reported plan data</span><h2>Limits, headroom &amp; balances</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Windows refresh with each sync</span><button class="text-button" type="button" id="limit-help">About limits <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
-            <div class="limits-subheading"><span>Codex CLI profiles</span><span class="mono">3 homes · exact rate-limit snapshots</span></div>
-            <div class="codex-accounts-grid" id="codex-accounts-grid"></div>
-            <div class="limits-subheading limits-subheading-secondary"><span>Other provider windows</span><span class="mono">Plan-specific headroom</span></div>
-            <div class="limits-grid" id="limits-grid"></div>
-          </section>
-
           <section class="section-block" id="accounts">
-            <div class="section-heading-row"><div><span class="section-label">Provider adapters</span><h2>Connected accounts</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> All systems operational</span><button class="text-button" type="button" id="manage-accounts">Manage <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
+            <div class="section-heading-row"><div><span class="section-label">Provider adapters</span><h2>Local providers</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Local adapter status</span><button class="text-button" type="button" id="manage-accounts">Review limits <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
             <div class="account-grid" id="account-grid"></div>
           </section>
 
@@ -164,9 +171,9 @@
             </article>
 
             <aside class="card activity-card" id="activity-log">
-              <div class="section-heading-row compact"><div><span class="section-label">Just now</span><h2>Activity</h2></div><button class="icon-button small" type="button" aria-label="More activity"><span class="icon" data-icon="more"></span></button></div>
+              <div class="section-heading-row compact"><div><span class="section-label">Observed history</span><h2>Recent active days</h2></div><button class="icon-button small" type="button" aria-label="More activity"><span class="icon" data-icon="more"></span></button></div>
               <div class="activity-list" id="activity-list"></div>
-              <button class="load-more" type="button" id="view-activity">Open activity log <span class="icon" data-icon="arrow-right"></span></button>
+              <button class="load-more" type="button" id="view-activity">Explore usage insights <span class="icon" data-icon="arrow-right"></span></button>
             </aside>
           </section>
 
@@ -191,6 +198,7 @@
         <label class="setting-row"><span><strong>Compact view by default</strong><small>Open the menu-bar-style summary on launch.</small></span><input id="compact-default" type="checkbox" /></label>
         <div class="settings-actions"><button class="secondary-button" id="enter-compact" type="button"><span class="icon" data-icon="panel"></span>Open compact view</button><button class="text-button" id="reset-settings" type="button">Restore defaults</button></div>
       </form>
+      <div class="definition-card" id="limit-definitions"><span class="section-label">Reading your subscription limits</span><dl><div><dt>Remaining allowance</dt><dd>Each gauge shows the lowest known window for that account. A weekly allowance and a short usage window are separate constraints; one exhausted window can block use.</dd></div><div><dt>Reset times</dt><dd>Times use your device’s time zone. A passed reset waits for a fresh provider report before showing new headroom.</dd></div><div><dt>Current, cached, or unknown</dt><dd>Provider-reported limits are current snapshots. Cached limits retain their timestamp. Missing values stay unreported, so an unknown allowance is never shown as 100% available.</dd></div><div><dt>Plans and credits</dt><dd>Plan names are reported by the provider, or labelled configured. Credit balances are separate from subscription allowances. Actual subscription fees are not available from these local sources.</dd></div></dl></div>
       <div class="definition-card" id="value-definitions"><span class="section-label">Value definitions</span><dl><div><dt>API-equivalent value</dt><dd>Estimated token value at dashboard reference API rates. It is not an invoice.</dd></div><div><dt>Subscription spend</dt><dd>Recurring plan fees actually paid. Not inferred or included in this dashboard.</dd></div><div><dt>Modeled cache value avoided</dt><dd>Estimated uncached API value avoided by cache reads; not cash saved on a subscription.</dd></div><div><dt>Usage credits available</dt><dd>Remaining balance reported directly by the provider.</dd></div></dl></div>
     </aside>
 
@@ -214,6 +222,7 @@
       </div>
     </section>
     <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-icon"><span class="icon" data-icon="check"></span></span><span id="toast-copy">Usage synced</span></div>
+    <script src="/dashboard-insights.js"></script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

@@ -133,6 +133,8 @@ async function createMainWindow() {
     }
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('show', () => sendSurfaceVisibility(mainWindow, true));
+  mainWindow.on('hide', () => sendSurfaceVisibility(mainWindow, false));
   mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('pulse:fullscreen-changed', true));
   mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('pulse:fullscreen-changed', false));
   await mainWindow.loadURL(`${baseUrl}/?surface=desktop`);
@@ -143,6 +145,13 @@ async function createMainWindow() {
     if (isMac) app.focus({ steal: true });
   }
   return mainWindow;
+}
+
+// `backgroundThrottling: false` pins document.visibilityState to 'visible', so
+// the renderer cannot tell on its own that the popover is off screen. The main
+// process is the only place that knows, and it says so explicitly.
+function sendSurfaceVisibility(window, visible) {
+  if (window && !window.isDestroyed()) window.webContents.send('pulse:surface-visibility', visible);
 }
 
 function normalizedTarget(target) {
@@ -183,7 +192,10 @@ async function createTrayWindow() {
     if (!trayWindow.webContents.isDevToolsOpened()) trayWindow.hide();
   });
   trayWindow.on('closed', () => { trayWindow = null; });
+  trayWindow.on('show', () => sendSurfaceVisibility(trayWindow, true));
+  trayWindow.on('hide', () => sendSurfaceVisibility(trayWindow, false));
   await trayWindow.loadURL(`${baseUrl}/?surface=tray`);
+  sendSurfaceVisibility(trayWindow, trayWindow.isVisible());
   return trayWindow;
 }
 
@@ -212,27 +224,60 @@ function toggleTrayWindow(bounds = tray?.getBounds()) {
   trayWindow.focus();
 }
 
+function safePercent(value, fallback = null) {
+  if (value === null || value === undefined || typeof value === 'boolean' || String(value).trim() === '') return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : fallback;
+}
+
+function displayPercent(value) {
+  const percent = safePercent(value);
+  if (percent === null) return null;
+  return percent <= 0 ? 0 : Math.max(1, Math.round(percent));
+}
+
+function trayWindowPercent(window) {
+  return displayPercent(safePercent(window?.displayRemaining, window?.remaining));
+}
+
+function trayWindowLabel(window) {
+  const percent = trayWindowPercent(window);
+  return percent === null ? '—' : `${percent}%`;
+}
+
+let trayPresentation = { title: null, tooltip: null };
+
 function updateTrayPresentation() {
   if (!tray) return;
-  const remaining = Number.isFinite(trayStatus.lowestRemaining) ? `${Math.round(trayStatus.lowestRemaining)}%` : '—';
+  const remaining = Number.isFinite(trayStatus.lowestRemaining) ? `${displayPercent(trayStatus.lowestRemaining)}%` : '—';
   const health = trayStatus.paused ? 'sync paused' : 'sync healthy';
   const warnings = trayStatus.warningCount === 1 ? '1 warning' : `${trayStatus.warningCount} warnings`;
   const accountTitle = trayStatus.accounts.map((account, index) => {
-    const values = account.windows.map((window) => Math.round(window.remaining)).join('/');
-    return values ? `C${index + 1} ${values}%` : `C${index + 1} —`;
+    const values = account.windows.map((window) => trayWindowLabel(window)).join('/');
+    return `C${index + 1} ${values || '—'}`;
   }).join(' · ');
   const accountTooltip = trayStatus.accounts.map((account, index) => {
-    const windows = account.windows.map((window) => `${window.tag} ${Math.round(window.remaining)}%`).join(', ');
+    const windows = account.windows.map((window) => `${window.tag} ${trayWindowLabel(window)}`).join(', ');
     return `C${index + 1} ${account.profile}: ${windows || 'not reported'}`;
   }).join(' · ');
-  tray.setToolTip(`Pulse · ${accountTooltip || `${remaining} lowest headroom`} · ${warnings} · ${health}`);
-  if (isMac) tray.setTitle(accountTitle, { fontType: 'monospacedDigit' });
+  const tooltip = `Pulse · ${accountTooltip || `${remaining} lowest headroom`} · ${warnings} · ${health}`;
+  // A status payload arrives on every renderer poll, but the menu-bar text only
+  // changes when a percentage actually moves. Skipping no-op AppKit writes keeps
+  // the item from redrawing several times a minute for nothing.
+  if (tooltip !== trayPresentation.tooltip) {
+    tray.setToolTip(tooltip);
+    trayPresentation.tooltip = tooltip;
+  }
+  if (isMac && accountTitle !== trayPresentation.title) {
+    tray.setTitle(accountTitle, { fontType: 'monospacedDigit' });
+    trayPresentation.title = accountTitle;
+  }
 }
 
 function trayMenu() {
-  const remaining = Number.isFinite(trayStatus.lowestRemaining) ? `${Math.round(trayStatus.lowestRemaining)}% lowest headroom` : 'Waiting for usage snapshot';
+  const remaining = Number.isFinite(trayStatus.lowestRemaining) ? `${displayPercent(trayStatus.lowestRemaining)}% lowest headroom` : 'Waiting for usage snapshot';
   const accountItems = trayStatus.accounts.map((account, index) => ({
-    label: `C${index + 1} ${account.profile} · ${account.windows.map((window) => `${window.tag} ${Math.round(window.remaining)}%`).join(' · ') || 'not reported'}`,
+    label: `C${index + 1} ${account.profile} · ${account.windows.map((window) => `${window.tag} ${trayWindowLabel(window)}`).join(' · ') || 'not reported'}`,
     enabled: false
   }));
   return Menu.buildFromTemplate([
@@ -275,7 +320,7 @@ function registerIpc() {
   });
   ipcMain.on('pulse:tray-status', (event, payload) => {
     if (!fromPulse(event) || !payload || typeof payload !== 'object') return;
-    const lowestRemaining = Number(payload.lowestRemaining);
+    const lowestRemaining = safePercent(payload.lowestRemaining);
     const accounts = Array.isArray(payload.accounts) ? payload.accounts.slice(0, 8).map((account, index) => ({
       id: String(account?.id || `codex-account-${index + 1}`).slice(0, 80),
       profile: String(account?.profile || `Codex ${index + 1}`).slice(0, 80),
@@ -283,7 +328,8 @@ function registerIpc() {
       windows: Array.isArray(account?.windows) ? account.windows.slice(0, 4).map((window) => ({
         tag: String(window?.tag || 'LIVE').slice(0, 12),
         label: String(window?.label || 'Current window').slice(0, 80),
-        remaining: Math.max(0, Math.min(100, Number(window?.remaining) || 0)),
+        remaining: safePercent(window?.remaining),
+        displayRemaining: safePercent(window?.displayRemaining, displayPercent(window?.remaining)),
         reset: String(window?.reset || 'reset time unavailable').slice(0, 100)
       })) : []
     })) : [];
@@ -341,6 +387,17 @@ async function bootstrap() {
   createTray();
 
   if (smokeTest) {
+    // Loading begins with empty, unreported data. Wait for the first real
+    // snapshot, then render the hidden surfaces as if the user opened them.
+    for (const window of [mainWindow, trayWindow]) sendSurfaceVisibility(window, true);
+    await Promise.all([mainWindow, trayWindow].map((window) => window.webContents.executeJavaScript(`
+      (async () => {
+        const deadline = Date.now() + 60000;
+        while (document.querySelector('#sync-button')?.classList.contains('is-syncing') && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      })()
+    `)));
     await mainWindow.webContents.executeJavaScript(`document.querySelector('.brand').style.transition = 'none'`);
     mainWindow.webContents.send('pulse:fullscreen-changed', true);
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -359,17 +416,20 @@ async function bootstrap() {
         bridgeReady: Boolean(window.pulseDesktop),
         nodeIsolated: typeof window.require === 'undefined' && typeof window.process === 'undefined',
         desktopSurface: document.body.classList.contains('desktop-app-surface'),
+        snapshotLoaded: document.querySelector('#connection-title')?.textContent === 'Your local usage, connected',
         logoOffsetReady: getComputedStyle(document.querySelector('.brand')).transform !== 'none'
       })`),
       trayWindow.webContents.executeJavaScript(`({
         bridgeReady: Boolean(window.pulseDesktop),
         compactMode: document.body.classList.contains('compact-mode'),
-        resetTimesVisible: document.querySelector('#compact-headroom')?.innerText.includes('reset') || false,
+        snapshotLoaded: document.querySelector('#connection-title')?.textContent === 'Your local usage, connected',
+        resetTimesVisible: /reset/i.test(document.querySelector('#compact-headroom')?.innerText || ''),
         accountLimitCount: document.querySelectorAll('#compact-headroom .compact-account-limit').length,
         remainingMeterCount: document.querySelectorAll('#compact-headroom .compact-window-meter').length,
         fitsWindow: document.documentElement.scrollHeight <= document.documentElement.clientHeight
       })`)
     ]);
+    const expectedWindowCount = trayStatus.accounts.reduce((sum, account) => sum + account.windows.length, 0);
     const result = {
       baseUrl,
       mainLoaded: mainWindow?.webContents.getURL().includes('surface=desktop') || false,
@@ -377,14 +437,21 @@ async function bootstrap() {
       iconLoaded: !nativeImage.createFromPath(iconPath()).isEmpty(),
       dockIconVisible: !isMac || Boolean(app.dock?.isVisible()),
       rendererSandboxed: mainProbe.nodeIsolated && trayProbe.bridgeReady,
+      liveSnapshotReady: mainProbe.snapshotLoaded && trayProbe.snapshotLoaded,
       mainBridgeReady: mainProbe.bridgeReady && mainProbe.desktopSurface && mainProbe.logoOffsetReady,
       fullscreenLogoResponsive: fullscreenLogoProbe.fullscreenClass
         && fullscreenLogoProbe.transform === 'matrix(1, 0, 0, 1, 0, 0)'
         && !windowedLogoProbe.fullscreenClass
         && windowedLogoProbe.transform !== fullscreenLogoProbe.transform,
-      trayCompactReady: trayProbe.compactMode && trayProbe.resetTimesVisible && trayProbe.accountLimitCount >= 3 && trayProbe.remainingMeterCount >= trayProbe.accountLimitCount && trayProbe.fitsWindow,
-      trayStatusReported: Number.isFinite(trayStatus.lowestRemaining) && trayStatus.accounts.length >= 3,
-      menuBarAllAccountsReady: /^C1 .+ · C2 .+ · C3 /.test(tray.getTitle())
+      trayCompactReady: trayProbe.compactMode
+        && (expectedWindowCount === 0 || trayProbe.resetTimesVisible)
+        && trayProbe.accountLimitCount === trayStatus.accounts.length
+        && trayProbe.remainingMeterCount === expectedWindowCount
+        && trayProbe.fitsWindow,
+      trayStatusReported: Number.isFinite(trayStatus.fetchedAt) && trayStatus.accounts.length > 0
+        && (trayStatus.lowestRemaining === null || Number.isFinite(trayStatus.lowestRemaining)),
+      menuBarAllAccountsReady: !isMac || (trayStatus.accounts.length > 0
+        && trayStatus.accounts.every((_account, index) => tray.getTitle().includes(`C${index + 1} `)))
     };
     console.log(`PULSE_SMOKE ${JSON.stringify(result)}`);
     isQuitting = true;

@@ -1,6 +1,6 @@
 import http from "node:http";
 import { execFile, spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,12 +15,31 @@ const accountSnapshotCachePath = path.join(homeDir, ".t3", "userdata", "usage-pu
 const commandCodeProjectsPath = path.join(homeDir, ".commandcode", "projects");
 const lifetimeLookbackDays = 3650;
 
+// Both desktop surfaces (main window and menu-bar popover) poll this server
+// independently, so every expensive source is memoised for a little less than
+// one poll interval and concurrent requests share a single in-flight pass.
+const snapshotTtlMs = Number(process.env.PULSE_SNAPSHOT_TTL_MS ?? 4000);
+const codexAccountsTtlMs = Number(process.env.PULSE_CODEX_TTL_MS ?? 10000);
+const openCodeTtlMs = Number(process.env.PULSE_OPENCODE_TTL_MS ?? 60000);
+
+// The local LiteLLM snapshot can lag a newly released model. Keep the current
+// Astra rates available as a small safety net, while allowing a newer local
+// rate table to override them when it catches up.
+const builtInModelRates = new Map([
+  ["gpt-6-astra", {
+    input: 0.00001,
+    output: 0.00005,
+    cacheRead: 0.000001,
+    cacheCreation: 0.0000125
+  }]
+]);
+
 const providerBlueprints = [
-  { id: "codex", name: "Codex", shortName: "Codex", color: "#e5e7eb", accounts: 3, cost: 1928.4, tokens: 8_330_000_000, status: "connected", source: "Local session cache", latency: "142ms" },
-  { id: "claude", name: "Claude Code", shortName: "Claude", color: "#ff825f", accounts: 1, cost: 862.75, tokens: 1_170_000_000, status: "connected", source: "Local session cache", latency: "318ms" },
-  { id: "commandcode", name: "Command Code", shortName: "Command", color: "#b99cff", accounts: 1, cost: 14.9, tokens: 84_300_000, status: "connected", source: "CLI account", latency: "204ms" },
-  { id: "cursor", name: "Cursor", shortName: "Cursor", color: "#79a7ff", accounts: 1, cost: 8.31, tokens: 61_800_000, status: "connected", source: "Desktop bridge", latency: "—" },
-  { id: "opencode", name: "OpenCode", shortName: "OpenCode", color: "#64dcc4", accounts: 1, cost: 4.78, tokens: 46_200_000, status: "connected", source: "Local stats", latency: "96ms" }
+  { id: "codex", name: "Codex", shortName: "Codex", color: "#e5e7eb", cost: 1928.4, tokens: 8_330_000_000, source: "Local session cache" },
+  { id: "claude", name: "Claude Code", shortName: "Claude", color: "#ff825f", cost: 862.75, tokens: 1_170_000_000, source: "Local session cache" },
+  { id: "commandcode", name: "Command Code", shortName: "Command", color: "#b99cff", cost: 14.9, tokens: 84_300_000, source: "Local transcripts" },
+  { id: "cursor", name: "Cursor", shortName: "Cursor", color: "#79a7ff", cost: 8.31, tokens: 61_800_000, source: "Telemetry unavailable" },
+  { id: "opencode", name: "OpenCode", shortName: "OpenCode", color: "#64dcc4", cost: 4.78, tokens: 46_200_000, source: "Local stats" }
 ];
 
 const codexAccountBlueprints = [
@@ -52,8 +71,35 @@ function readJson(filePath) {
   return fs.readFile(filePath, "utf8").then(JSON.parse).catch(() => null);
 }
 
+// Serves a cached value for `ttlMs`, collapses concurrent callers onto one
+// in-flight load, and keeps the last good value when a refresh throws.
+function memoizeAsync(ttlMs, loader) {
+  const entries = new Map();
+  return (key = "") => {
+    const entry = entries.get(key);
+    if (entry?.inFlight) return entry.inFlight;
+    if (entry && Date.now() - entry.at < ttlMs) return Promise.resolve(entry.value);
+    const inFlight = Promise.resolve().then(() => loader(key)).then((value) => {
+      entries.set(key, { at: Date.now(), value, inFlight: null });
+      return value;
+    }, (error) => {
+      if (entry) entries.set(key, { at: entry.at, value: entry.value, inFlight: null });
+      else entries.delete(key);
+      throw error;
+    });
+    entries.set(key, { at: entry?.at ?? 0, value: entry?.value, inFlight });
+    return inFlight;
+  };
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function finitePercent(value) {
+  if (value === null || value === undefined || typeof value === "boolean" || String(value).trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? clamp(number, 0, 100) : null;
 }
 
 function parseCompact(value) {
@@ -80,11 +126,19 @@ function rateLimitWindow(window) {
   const duration = Number(window.windowDurationMins) || null;
   const tag = duration === 300 ? "5H" : duration === 10080 ? "7D" : duration === 43200 ? "30D" : duration ? `${Math.round(duration / 1440)}D` : "LIVE";
   const label = duration === 300 ? "5 hour window" : duration === 10080 ? "Weekly window" : duration === 43200 ? "30 day window" : duration ? `${Math.round(duration / 1440)} day window` : "Current window";
+  const reportedUsed = finitePercent(window.usedPercent ?? window.usedPercentage ?? window.percentUsed);
+  const reportedRemaining = finitePercent(window.remainingPercent ?? window.remainingPercentage ?? window.percentRemaining);
+  // Prefer an explicitly reported remainder. Some provider responses round
+  // used and remaining independently, so deriving used from the remainder
+  // keeps every Pulse surface internally consistent.
+  const remainingPercent = reportedRemaining ?? (reportedUsed === null ? null : 100 - reportedUsed);
+  const usedPercent = remainingPercent === null ? null : 100 - remainingPercent;
   return {
     tag,
     label,
-    usedPercent: Math.max(0, Math.min(100, Number(window.usedPercent) || 0)),
-    remainingPercent: Math.max(0, Math.min(100, 100 - (Number(window.usedPercent) || 0))),
+    usedPercent,
+    remainingPercent,
+    reported: remainingPercent !== null,
     windowDurationMins: duration,
     resetsAt: Number(window.resetsAt) || null
   };
@@ -101,10 +155,6 @@ function normalizeCodexAccount(account, response) {
   const usageExact = Boolean(usageResponse && Array.isArray(usageResponse.dailyUsageBuckets) && (usageResponse.dailyUsageBuckets.length > 0 || lifetimeTokens === 0));
   const fetchedAt = Date.now();
   const bankedResetsValue = snapshot?.bankedResets ?? snapshot?.credits?.bankedResets ?? null;
-  const fallbackReset = Math.floor(Date.now() / 1000) + (account.fallbackPlan === "free" ? 30 : 7) * 86_400;
-  const fallbackWindow = account.fallbackPlan === "free"
-    ? { tag: "30D", label: "30 day window", usedPercent: 0, remainingPercent: 100, windowDurationMins: 43200, resetsAt: fallbackReset }
-    : { tag: "7D", label: "Weekly window", usedPercent: 0, remainingPercent: 100, windowDurationMins: 10080, resetsAt: fallbackReset };
   return {
     id: account.id,
     profile: account.profile,
@@ -115,7 +165,7 @@ function normalizeCodexAccount(account, response) {
     rateStale: false,
     usageExact,
     usageStale: false,
-    windows: windows.length ? windows : [fallbackWindow],
+    windows,
     credits: snapshot?.credits || null,
     bankedResets: bankedResetsValue !== null && Number.isFinite(Number(bankedResetsValue)) ? Number(bankedResetsValue) : null,
     rateLimitReachedType: snapshot?.rateLimitReachedType || null,
@@ -131,6 +181,8 @@ function stabilizeCodexAccount(account) {
   const cached = codexAccountSnapshotCache.get(account.id) || {};
   const nextCache = { ...cached };
   let stabilized = { ...account };
+  const now = Date.now();
+  const cutoff = now - 24 * 60 * 60 * 1000;
 
   if (account.exact) {
     nextCache.rate = {
@@ -143,8 +195,10 @@ function stabilizeCodexAccount(account) {
       rateLimitReachedType: account.rateLimitReachedType,
       rateFetchedAt: account.rateFetchedAt
     };
-  } else if (cached.rate) {
+  } else if (cached.rate && Number(cached.rate.rateFetchedAt) >= cutoff) {
     stabilized = { ...stabilized, ...cached.rate, exact: false, connected: true, rateStale: true };
+  } else {
+    delete nextCache.rate;
   }
 
   if (account.usageExact) {
@@ -153,11 +207,28 @@ function stabilizeCodexAccount(account) {
       lifetimeTokens: account.lifetimeTokens,
       usageFetchedAt: account.usageFetchedAt
     };
-  } else if (cached.usage) {
+  } else if (cached.usage && Number(cached.usage.usageFetchedAt) >= cutoff) {
     stabilized = { ...stabilized, ...cached.usage, usageExact: false, usageStale: true };
+  } else {
+    delete nextCache.usage;
   }
 
-  if (account.exact || account.usageExact) nextCache.updatedAt = Date.now();
+  // A reset boundary makes the old percentage historical. Keep the last value
+  // as context, but wait for a new window instead of assuming a full refill.
+  stabilized.windows = (stabilized.windows || []).map((window) => {
+    const expired = Number(window.resetsAt) > 0 && Number(window.resetsAt) * 1000 <= now;
+    const reported = finitePercent(window.remainingPercent) !== null;
+    return {
+      ...window,
+      reported: reported && !expired,
+      status: expired ? "reset_pending" : !reported ? "unreported" : stabilized.rateStale ? "cached" : "current",
+      ...(expired ? { lastKnownRemainingPercent: window.remainingPercent, remainingPercent: null, usedPercent: null } : {})
+    };
+  });
+  stabilized.rateStatus = !stabilized.connected ? "unavailable" : stabilized.rateStale ? "cached" : "current";
+  stabilized.rateAgeMs = stabilized.rateFetchedAt ? Math.max(0, now - stabilized.rateFetchedAt) : null;
+  stabilized.usageAgeMs = stabilized.usageFetchedAt ? Math.max(0, now - stabilized.usageFetchedAt) : null;
+  if (account.exact || account.usageExact) nextCache.updatedAt = now;
   codexAccountSnapshotCache.set(account.id, nextCache);
   return stabilized;
 }
@@ -181,7 +252,7 @@ function readCodexRateLimits(account) {
       settled = true;
       clearTimeout(timeout);
       child.kill("SIGTERM");
-      resolve(normalizeCodexAccount(account, response));
+      resolve(normalizeCodexAccount(account, response || { rate: rateResponse, usage: usageResponse }));
     };
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
@@ -222,15 +293,345 @@ async function readCodexAccounts() {
   return stabilized;
 }
 
-async function walkFiles(directory) {
+async function walkRecentFiles(directory, minimumMtimeMs) {
   const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
-  const files = [];
-  for (const entry of entries) {
+  const nested = await Promise.all(entries.map(async (entry) => {
     const filePath = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await walkFiles(filePath));
-    else files.push(filePath);
+    if (entry.isDirectory()) return walkRecentFiles(filePath, minimumMtimeMs);
+    if (!entry.name.endsWith(".jsonl")) return [];
+    const stats = await fs.stat(filePath).catch(() => null);
+    return stats?.isFile() && stats.mtimeMs >= minimumMtimeMs ? [filePath] : [];
+  }));
+  return nested.flat();
+}
+
+async function walkTranscriptStats(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
+  const nested = await Promise.all(entries.map(async (entry) => {
+    const filePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) return walkTranscriptStats(filePath);
+    if (!entry.name.endsWith(".jsonl") || entry.name.endsWith(".checkpoints.jsonl")) return [];
+    const stats = await fs.stat(filePath).catch(() => null);
+    return stats?.isFile() ? [{ filePath, signature: `${stats.mtimeMs}:${stats.size}` }] : [];
+  }));
+  return nested.flat();
+}
+
+// Codex rollout transcripts routinely reach hundreds of megabytes. Lines are
+// located and pre-filtered on raw bytes -- Buffer#indexOf is a native search,
+// and UTF-8 never emits 0x0A inside a multi-byte sequence -- so nothing is
+// decoded or parsed for the ~99% of lines that carry no usage record.
+const newlineByte = 0x0a;
+
+function matchesMarker(line, markers) {
+  for (const marker of markers) {
+    if (line.includes(marker)) return true;
   }
-  return files;
+  return false;
+}
+
+async function scanJsonlFile(filePath, markers, onRecord) {
+  let used = false;
+  let carry = [];
+  let carryLength = 0;
+  const handleLine = (line) => {
+    if (line.length < 2 || !matchesMarker(line, markers)) return;
+    let record;
+    try {
+      record = JSON.parse(line.toString("utf8"));
+    } catch {
+      return;
+    }
+    if (onRecord(record) === true) used = true;
+  };
+  try {
+    for await (const chunk of createReadStream(filePath, { highWaterMark: 1 << 20 })) {
+      if (chunk.indexOf(newlineByte) === -1) {
+        // A single record can exceed the read size; hold the pieces so that a
+        // long line costs one copy rather than one per chunk.
+        carry.push(chunk);
+        carryLength += chunk.length;
+        continue;
+      }
+      let buffer = chunk;
+      if (carryLength > 0) {
+        carry.push(chunk);
+        buffer = Buffer.concat(carry, carryLength + chunk.length);
+        carry = [];
+        carryLength = 0;
+      }
+      let start = 0;
+      let newline = buffer.indexOf(newlineByte);
+      while (newline !== -1) {
+        handleLine(buffer.subarray(start, newline));
+        start = newline + 1;
+        newline = buffer.indexOf(newlineByte, start);
+      }
+      if (start < buffer.length) {
+        const tail = buffer.subarray(start);
+        carry.push(tail);
+        carryLength = tail.length;
+      }
+    }
+  } catch {
+    // A partially written or unreadable transcript still contributes whatever
+    // complete records were parsed before the failure.
+  }
+  if (carryLength > 0) handleLine(Buffer.concat(carry, carryLength));
+  return used;
+}
+
+const codexUsageMarkers = [Buffer.from("token_usage_record"), Buffer.from("turn_context"), Buffer.from("session_meta")];
+const usageMarkers = [Buffer.from("usage"), Buffer.from("quotaLimits")];
+
+function modelIndexFor(models) {
+  const index = new Map();
+  for (const model of models) index.set(`${model.name}\u0000${model.provider}`, model);
+  return index;
+}
+
+function addModelUsage(models, index, name, provider, cost, tokens) {
+  const key = `${name}\u0000${provider}`;
+  let target = index.get(key);
+  if (!target) {
+    target = { name, provider, cost: 0, tokens: 0 };
+    index.set(key, target);
+    models.push(target);
+  }
+  target.cost += cost;
+  target.tokens += tokens;
+}
+
+async function recentCodexSessionFiles(minimumMtimeMs) {
+  const roots = new Set();
+  for (const account of codexAccountBlueprints) {
+    const root = await fs.realpath(path.join(account.home, "sessions")).catch(() => null);
+    if (root) roots.add(root);
+  }
+  const files = await Promise.all([...roots].map((root) => walkRecentFiles(root, minimumMtimeMs)));
+  return [...new Set(files.flat())];
+}
+
+async function recentClaudeTranscriptFiles(minimumMtimeMs) {
+  const root = await fs.realpath(path.join(homeDir, ".claude", "projects")).catch(() => null);
+  return root ? walkRecentFiles(root, minimumMtimeMs) : [];
+}
+
+function latestCachedUsageTimestamps(cache) {
+  const latest = { codex: 0, claude: 0 };
+  for (const value of Object.values(cache?.files || {})) {
+    const provider = value?.p;
+    if (latest[provider] === undefined) continue;
+    for (const row of value?.r || []) {
+      const timestamp = Number(row?.[0]) || 0;
+      if (timestamp > latest[provider]) latest[provider] = timestamp;
+    }
+  }
+  return latest;
+}
+
+async function augmentWithRecentCodexSessions(cacheData, days, rates, cachedThroughMs) {
+  const rangeDates = new Set(Object.keys(cacheData.daily));
+  const live = { files: 0, records: 0, tokens: 0, cost: 0 };
+  if (!rangeDates.size) return live;
+
+  // The session supplement only covers data newer than the aggregate cache.
+  // This keeps repeated polls idempotent and leaves historical deduplication
+  // to the existing T3 usage scanner.
+  const minimumTimestampMs = Math.max(Date.now() - days * 86_400_000, cachedThroughMs);
+  const files = await recentCodexSessionFiles(minimumTimestampMs);
+  const models = modelIndexFor(cacheData.models);
+
+  for (const filePath of files) {
+    let currentModel = "";
+    let currentSession = path.basename(filePath, ".jsonl").match(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i)?.[0] || filePath;
+    const responseIds = new Set();
+    const used = await scanJsonlFile(filePath, codexUsageMarkers, (record) => {
+      const payload = record?.payload || {};
+      if (record?.type === "session_meta") {
+        if (payload.id) currentSession = String(payload.id);
+        return false;
+      }
+      if (record?.type === "turn_context") {
+        if (payload.model) currentModel = String(payload.model);
+        return false;
+      }
+      if (record?.type !== "token_usage_record" || !payload.usage) return false;
+
+      const timestamp = Date.parse(record.timestamp || "");
+      if (!Number.isFinite(timestamp) || timestamp <= minimumTimestampMs) return false;
+      const date = dateKey(timestamp);
+      if (!rangeDates.has(date) || !currentModel) return false;
+      const responseId = String(payload.response_id || "");
+      if (responseId && responseIds.has(responseId)) return false;
+      if (responseId) responseIds.add(responseId);
+
+      const usage = payload.usage;
+      const input = Math.max(0, Number(usage.input_tokens) || 0);
+      const cachedInput = Math.min(input, Math.max(0, Number(usage.cached_input_tokens ?? usage.cache_read_input_tokens) || 0));
+      const cacheCreation = Math.max(0, Number(usage.cache_write_input_tokens ?? usage.cache_creation_input_tokens) || 0);
+      const totals = {
+        uncachedInput: Math.max(0, input - cachedInput - cacheCreation),
+        cachedInput,
+        cacheCreation,
+        output: Math.max(0, Number(usage.output_tokens) || 0),
+        reasoning: Math.max(0, Number(usage.reasoning_output_tokens) || 0)
+      };
+      const tokens = totals.uncachedInput + totals.cachedInput + totals.cacheCreation + totals.output;
+      if (tokens <= 0) return false;
+
+      const cost = priceTokens(rates, currentModel, totals);
+      const aggregate = cacheData.aggregate.codex;
+      aggregate.tokens += tokens;
+      aggregate.cost += cost;
+      aggregate.cacheSavings += cacheSavingsFor(rates, currentModel, totals);
+      aggregate.uncachedInput += totals.uncachedInput;
+      aggregate.cachedInput += totals.cachedInput;
+      aggregate.cacheCreation += totals.cacheCreation;
+      aggregate.output += totals.output;
+      aggregate.reasoning += totals.reasoning;
+      aggregate.sessionIds.add(currentSession);
+      aggregate.sessions = aggregate.sessionIds.size;
+      cacheData.daily[date].codex.tokens += tokens;
+      cacheData.daily[date].codex.cost += cost;
+      addModelUsage(cacheData.models, models, currentModel, "codex", cost, tokens);
+
+      live.records += 1;
+      live.tokens += tokens;
+      live.cost += cost;
+      return true;
+    });
+    if (used) live.files += 1;
+  }
+
+  if (live.records) cacheData.models.sort((a, b) => b.cost - a.cost);
+  return live;
+}
+
+async function augmentWithRecentClaudeSessions(cacheData, days, rates, cachedThroughMs) {
+  const rangeDates = new Set(Object.keys(cacheData.daily));
+  const live = { files: 0, records: 0, tokens: 0, cost: 0, quota: null };
+  if (!rangeDates.size) return live;
+
+  const minimumTimestampMs = Math.max(Date.now() - days * 86_400_000, cachedThroughMs);
+  const files = await recentClaudeTranscriptFiles(minimumTimestampMs);
+  const models = modelIndexFor(cacheData.models);
+  let latestQuotaTimestamp = 0;
+
+  for (const filePath of files) {
+    const messageIds = new Set();
+    const used = await scanJsonlFile(filePath, usageMarkers, (record) => {
+      if (record?.type !== "assistant" || !record.message?.usage) return false;
+
+      const timestamp = Date.parse(record.timestamp || "");
+      if (!Number.isFinite(timestamp)) return false;
+      if (record.quotaLimits && timestamp >= latestQuotaTimestamp) {
+        latestQuotaTimestamp = timestamp;
+        live.quota = {
+          status: String(record.quotaLimits.status || "").toLowerCase(),
+          rateLimitType: String(record.quotaLimits.rateLimitType || "").toLowerCase(),
+          overageStatus: String(record.quotaLimits.overageStatus || "").toLowerCase(),
+          resetsAt: Number(record.quotaLimits.resetsAt) || null,
+          fetchedAt: timestamp
+        };
+      }
+      if (timestamp <= minimumTimestampMs) return false;
+      const date = dateKey(timestamp);
+      if (!rangeDates.has(date)) return false;
+
+      const messageId = String(record.message.id || record.uuid || "");
+      if (messageId && messageIds.has(messageId)) return false;
+      if (messageId) messageIds.add(messageId);
+
+      const usage = record.message.usage;
+      const totals = {
+        uncachedInput: Math.max(0, Number(usage.input_tokens) || 0),
+        cachedInput: Math.max(0, Number(usage.cache_read_input_tokens) || 0),
+        cacheCreation: Math.max(0, Number(usage.cache_creation_input_tokens) || 0),
+        output: Math.max(0, Number(usage.output_tokens) || 0),
+        reasoning: Math.max(0, Number(usage.output_tokens_details?.thinking_tokens) || 0)
+      };
+      const tokens = totals.uncachedInput + totals.cachedInput + totals.cacheCreation + totals.output;
+      if (tokens <= 0) return false;
+
+      const model = String(record.message.model || record.model || "").trim();
+      if (!model) return false;
+      const cost = priceTokens(rates, model, totals);
+      const aggregate = cacheData.aggregate.claude;
+      aggregate.tokens += tokens;
+      aggregate.cost += cost;
+      aggregate.cacheSavings += cacheSavingsFor(rates, model, totals);
+      aggregate.uncachedInput += totals.uncachedInput;
+      aggregate.cachedInput += totals.cachedInput;
+      aggregate.cacheCreation += totals.cacheCreation;
+      aggregate.output += totals.output;
+      aggregate.reasoning += totals.reasoning;
+      aggregate.sessionIds.add(String(record.sessionId || path.basename(filePath, ".jsonl")));
+      aggregate.sessions = aggregate.sessionIds.size;
+      cacheData.daily[date].claude.tokens += tokens;
+      cacheData.daily[date].claude.cost += cost;
+      addModelUsage(cacheData.models, models, model, "claude", cost, tokens);
+
+      live.records += 1;
+      live.tokens += tokens;
+      live.cost += cost;
+      return true;
+    });
+    if (used) live.files += 1;
+  }
+
+  if (live.records) cacheData.models.sort((a, b) => b.cost - a.cost);
+  return live;
+}
+
+function claudeLimitsFromQuota(quota) {
+  if (!quota) return {
+    plan: "Not reported",
+    planSource: "unreported",
+    note: "Claude Code · local quota records",
+    fetchedAt: null,
+    stale: false,
+    status: "unreported",
+    unreported: true,
+    message: "No current quota record is available. Remaining allowance and plan have not been reported."
+  };
+  const rejected = quota.status === "rejected" || quota.overageStatus === "rejected";
+  const isWeekly = quota.rateLimitType === "seven_day" || quota.rateLimitType === "weekly";
+  const isFiveHour = quota.rateLimitType === "five_hour";
+  const windowDurationMins = isWeekly ? 10080 : isFiveHour ? 300 : null;
+  const now = Date.now();
+  const expired = Number(quota.resetsAt) > 0 && Number(quota.resetsAt) * 1000 <= now;
+  const stale = expired || (windowDurationMins !== null && Number(quota.fetchedAt) > 0 && now - Number(quota.fetchedAt) >= windowDurationMins * 60_000);
+  const metadata = {
+    plan: "Not reported",
+    planSource: "unreported",
+    note: "Claude Code · local quota record",
+    fetchedAt: quota.fetchedAt || null,
+    stale,
+    status: expired ? "reset_pending" : stale ? "stale" : rejected ? "reached" : "unreported"
+  };
+  if (!rejected || stale || windowDurationMins === null) {
+    return {
+      ...metadata,
+      unreported: true,
+      message: expired
+        ? "The last reported reset has passed. Current allowance has not been reported yet."
+        : stale
+          ? "The last quota record is out of date. Current allowance has not been reported yet."
+          : "Claude Code did not report a remaining percentage for a known quota window."
+    };
+  }
+  return {
+    ...metadata,
+    limits: [{
+      label: isWeekly ? "Weekly window" : "5 hour window",
+      tag: isWeekly ? "7D" : "5H",
+      remaining: 0,
+      windowDurationMins,
+      reported: true,
+      resetsAt: quota.resetsAt
+    }]
+  };
 }
 
 const reportingDateFormatter = new Intl.DateTimeFormat("en-CA", {
@@ -240,19 +641,44 @@ const reportingDateFormatter = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit"
 });
 
+// A local calendar date can only change on a 15-minute UTC boundary, because
+// every real UTC offset is a multiple of 15 minutes. Bucketing by quarter hour
+// is therefore exact, and turns ~70k Intl format calls per aggregate pass into
+// a few thousand.
+const dateKeyCache = new Map();
+
 function dateKey(timestamp) {
-  return reportingDateFormatter.format(new Date(timestamp));
+  const bucket = Math.floor(timestamp / 900_000);
+  const cached = dateKeyCache.get(bucket);
+  if (cached !== undefined) return cached;
+  const value = reportingDateFormatter.format(new Date(timestamp));
+  if (dateKeyCache.size > 200_000) dateKeyCache.clear();
+  dateKeyCache.set(bucket, value);
+  return value;
 }
 
+const dateRangeCache = new Map();
+let dateRangeCacheDay = "";
+
+// The returned array is shared and frozen; callers only ever read from it.
 function buildDateRange(days) {
-  const result = [];
   const now = new Date();
   now.setHours(12, 0, 0, 0);
+  const today = dateKey(now.getTime());
+  if (today !== dateRangeCacheDay) {
+    dateRangeCache.clear();
+    dateRangeCacheDay = today;
+  }
+  const cached = dateRangeCache.get(days);
+  if (cached) return cached;
+  const result = [];
   for (let index = days - 1; index >= 0; index -= 1) {
     const day = new Date(now);
     day.setDate(now.getDate() - index);
-    result.push(day.toISOString().slice(0, 10));
+    result.push(dateKey(day.getTime()));
   }
+  Object.freeze(result);
+  dateRangeCache.set(days, result);
   return result;
 }
 
@@ -281,7 +707,7 @@ function normalizeModelName(model) {
 }
 
 function parseRateTable(document) {
-  const table = new Map();
+  const table = new Map(builtInModelRates);
   if (!document || typeof document !== "object") return table;
   for (const [name, raw] of Object.entries(document)) {
     if (!raw || typeof raw !== "object") continue;
@@ -301,13 +727,18 @@ function parseRateTable(document) {
 function modelRate(rates, model) {
   const normalized = normalizeModelName(model);
   if (!normalized || unpriceableModels.has(normalized)) return null;
-  return rates.get(normalized) || null;
+  const datedModel = normalized.replace(/-\d{4}-\d{2}-\d{2}$/, "");
+  return rates.get(normalized) || (datedModel !== normalized ? rates.get(datedModel) : null) || null;
 }
 
 function priceTokens(rates, model, totals, reportedCost = null) {
-  if (reportedCost !== null && Number.isFinite(Number(reportedCost))) return Number(reportedCost);
+  const normalizedReportedCost = Number(reportedCost);
+  // A zero cost in an older scan is often a cache miss for a newly released
+  // model, not evidence that the request was free. Reprice those rows from
+  // the current table/fallback, but preserve positive provider-reported costs.
+  if (reportedCost !== null && reportedCost !== undefined && Number.isFinite(normalizedReportedCost) && normalizedReportedCost > 0) return normalizedReportedCost;
   const rate = modelRate(rates, model);
-  if (!rate) return 0;
+  if (!rate) return Number.isFinite(normalizedReportedCost) ? Math.max(0, normalizedReportedCost) : 0;
   return totals.uncachedInput * rate.input + totals.cachedInput * rate.cacheRead + totals.cacheCreation * rate.cacheCreation + totals.output * rate.output;
 }
 
@@ -373,11 +804,40 @@ function aggregateLocalCache(cache, days, rates) {
   }
 
   for (const target of Object.values(aggregate)) {
+    target.sessionIds = target.sessions;
     target.sessions = target.sessions.size;
   }
   return { aggregate, daily, models: [...models.values()].sort((a, b) => b.cost - a.cost) };
 }
 
+const commandCodeFileCache = new Map();
+
+async function readCommandCodeEvents(filePath, signature) {
+  const cached = commandCodeFileCache.get(filePath);
+  if (cached?.signature === signature) return cached.events;
+  const events = [];
+  await scanJsonlFile(filePath, usageMarkers, (event) => {
+    if (!event?.usage) return false;
+    const timestamp = Date.parse(event.timestamp || "");
+    if (!Number.isFinite(timestamp)) return false;
+    const usage = event.usage;
+    events.push({
+      timestamp,
+      uncachedInput: Math.max(0, Number(usage.inputTokens) || 0),
+      output: Math.max(0, Number(usage.outputTokens) || 0),
+      cachedInput: Math.max(0, Number(usage.cacheReadTokens) || 0),
+      cacheCreation: Math.max(0, Number(usage.cacheWriteTokens) || 0),
+      cost: Math.max(0, Number(usage.costUsd) || 0),
+      model: event.model || "command-default"
+    });
+    return true;
+  });
+  commandCodeFileCache.set(filePath, { signature, events });
+  return events;
+}
+
+// Command Code transcripts are append-only, so parsed events are reused until
+// a file's size or mtime changes. Only the (cheap) range aggregation reruns.
 async function aggregateCommandCode(days) {
   const start = Date.now() - days * 86_400_000;
   const daily = Object.fromEntries(buildDateRange(days).map((date) => [date, 0]));
@@ -391,49 +851,38 @@ async function aggregateCommandCode(days) {
   let cacheCreation = 0;
   let output = 0;
   let earliestTimestamp = null;
-  const files = (await walkFiles(commandCodeProjectsPath)).filter((filePath) => filePath.endsWith(".jsonl") && !filePath.endsWith(".checkpoints.jsonl"));
+  const transcripts = await walkTranscriptStats(commandCodeProjectsPath);
+  const liveFiles = new Set(transcripts.map((transcript) => transcript.filePath));
+  for (const filePath of commandCodeFileCache.keys()) {
+    if (!liveFiles.has(filePath)) commandCodeFileCache.delete(filePath);
+  }
 
-  for (const filePath of files) {
-    const contents = await fs.readFile(filePath, "utf8").catch(() => "");
+  for (const transcript of transcripts) {
+    const events = await readCommandCodeEvents(transcript.filePath, transcript.signature);
     let used = false;
-    for (const line of contents.split("\n")) {
-      try {
-        const event = JSON.parse(line);
-        if (!event.usage) continue;
-        const timestamp = Date.parse(event.timestamp || "");
-        if (!Number.isFinite(timestamp)) continue;
-        earliestTimestamp = earliestTimestamp === null ? timestamp : Math.min(earliestTimestamp, timestamp);
-        if (timestamp < start) continue;
-        const usage = event.usage;
-        const eventUncached = Math.max(0, Number(usage.inputTokens) || 0);
-        const eventOutput = Math.max(0, Number(usage.outputTokens) || 0);
-        const eventCached = Math.max(0, Number(usage.cacheReadTokens) || 0);
-        const eventCreation = Math.max(0, Number(usage.cacheWriteTokens) || 0);
-        const eventCost = Math.max(0, Number(usage.costUsd) || 0);
-        const eventTokens = eventUncached + eventOutput + eventCached + eventCreation;
-        tokens += eventTokens;
-        cost += eventCost;
-        uncachedInput += eventUncached;
-        cachedInput += eventCached;
-        cacheCreation += eventCreation;
-        output += eventOutput;
-        const key = dateKey(timestamp);
-        if (daily[key] !== undefined) daily[key] += eventTokens;
-        if (dailyCost[key] !== undefined) dailyCost[key] += eventCost;
-        const model = event.model || "command-default";
-        const modelUsage = models[model] || { tokens: 0, cost: 0 };
-        modelUsage.tokens += eventTokens;
-        modelUsage.cost += eventCost;
-        models[model] = modelUsage;
-        used = true;
-      } catch {
-        // Ignore partial or non-JSON transcript lines.
-      }
+    for (const event of events) {
+      earliestTimestamp = earliestTimestamp === null ? event.timestamp : Math.min(earliestTimestamp, event.timestamp);
+      if (event.timestamp < start) continue;
+      const eventTokens = event.uncachedInput + event.output + event.cachedInput + event.cacheCreation;
+      tokens += eventTokens;
+      cost += event.cost;
+      uncachedInput += event.uncachedInput;
+      cachedInput += event.cachedInput;
+      cacheCreation += event.cacheCreation;
+      output += event.output;
+      const key = dateKey(event.timestamp);
+      if (daily[key] !== undefined) daily[key] += eventTokens;
+      if (dailyCost[key] !== undefined) dailyCost[key] += event.cost;
+      const modelUsage = models[event.model] || { tokens: 0, cost: 0 };
+      modelUsage.tokens += eventTokens;
+      modelUsage.cost += event.cost;
+      models[event.model] = modelUsage;
+      used = true;
     }
     if (used) sessions += 1;
   }
 
-  return { tokens, cost, sessions, daily, dailyCost, models, uncachedInput, cachedInput, cacheCreation, output, earliestTimestamp };
+  return { tokens, cost, sessions, detected: transcripts.length > 0, daily, dailyCost, models, uncachedInput, cachedInput, cacheCreation, output, earliestTimestamp };
 }
 
 function availableHistoryDays(cache, accounts, commandCodeEarliestTimestamp) {
@@ -461,18 +910,21 @@ function parseOpenCodeStats(text) {
   const input = parseCompact(text.match(/\nInput\s+([\d.,]+\s*[KMBT]?)/i)?.[1]);
   const output = parseCompact(text.match(/\nOutput\s+([\d.,]+\s*[KMBT]?)/i)?.[1]);
   const cacheRead = parseCompact(text.match(/\nCache Read\s+([\d.,]+\s*[KMBT]?)/i)?.[1]);
-  const sessions = Number(text.match(/\nSessions\s+(\d+)/i)?.[1] || 0);
+  const sessionsMatch = text.match(/\nSessions\s+(\d+)/i);
+  const sessions = sessionsMatch ? Number(sessionsMatch[1]) : null;
   const tokens = input + output + cacheRead;
-  return tokens > 0 || sessions > 0 ? { tokens, sessions, input, output, cacheRead } : null;
+  return tokens > 0 || sessions !== null ? { tokens, sessions, input, output, cacheRead } : null;
 }
 
 function distributeCost(daily, providerId, totalCost, totalTokens, field = providerId) {
   const total = daily.reduce((sum, point) => sum + (Number(point[field]) || 0), 0);
-  return daily.map((point) => ({
-    ...point,
-    [providerId]: total ? Number(((point[field] / total) * totalCost).toFixed(2)) : 0,
-    [`${providerId}Tokens`]: total ? Number(((point[field] / total) * (Number(totalTokens) || 0)).toFixed(0)) : 0
-  }));
+  const tokens = Number(totalTokens) || 0;
+  for (const point of daily) {
+    const share = total ? point[field] / total : 0;
+    point[providerId] = total ? Number((share * totalCost).toFixed(2)) : 0;
+    point[`${providerId}Tokens`] = total ? Number((share * tokens).toFixed(0)) : 0;
+  }
+  return daily;
 }
 
 function estimateCost(baseCost, baseTokens, tokens) {
@@ -536,7 +988,7 @@ function includeAllCodexAccountUsage(cacheData, codexUsage) {
       cacheData.daily[gap.date].codex.cost += tokens * blendedCostPerToken;
     }
   } else {
-    const lastDate = buildDateRange(Object.keys(cacheData.daily).length).at(-1);
+    const lastDate = dateKey(Date.now());
     if (lastDate && cacheData.daily[lastDate]) {
       cacheData.daily[lastDate].codex.tokens += uncoveredTokens;
       cacheData.daily[lastDate].codex.cost += uncoveredTokens * blendedCostPerToken;
@@ -552,25 +1004,34 @@ function includeAllCodexAccountUsage(cacheData, codexUsage) {
   return { uncoveredTokens, accountTokens: codexUsage.rangeTokens, transcriptTokens: observed.tokens - uncoveredTokens };
 }
 
-async function getSnapshot(days) {
-  const lifetime = String(days).toLowerCase() === "lifetime";
-  const requestedDays = lifetime ? lifetimeLookbackDays : clamp(Number(days) || 30, 7, 90);
+const cachedCodexAccounts = memoizeAsync(codexAccountsTtlMs, () => readCodexAccounts());
+const cachedOpenCodeStats = memoizeAsync(openCodeTtlMs, (days) => runCommand("opencode", ["stats", "--days", days]));
+
+async function buildSnapshot(days) {
+  const lifetime = days === "lifetime";
+  const requestedDays = lifetime ? lifetimeLookbackDays : Number(days);
   const [cache, ratesCache, commandCodeData, openCodeText, rawCodexAccounts] = await Promise.all([
     readJson(usageCachePath),
     readJson(usageRatesPath),
     aggregateCommandCode(requestedDays),
-    runCommand("opencode", ["stats", "--days", String(requestedDays)]),
-    readCodexAccounts()
+    cachedOpenCodeStats(String(requestedDays)),
+    cachedCodexAccounts()
   ]);
   const safeDays = lifetime ? availableHistoryDays(cache, rawCodexAccounts, commandCodeData.earliestTimestamp) : requestedDays;
   const rates = parseRateTable(ratesCache?.document);
   const cacheData = aggregateLocalCache(cache, safeDays, rates);
+  const cachedThrough = latestCachedUsageTimestamps(cache);
+  const [liveCodexUsage, liveClaudeUsage] = await Promise.all([
+    augmentWithRecentCodexSessions(cacheData, safeDays, rates, cachedThrough.codex),
+    augmentWithRecentClaudeSessions(cacheData, safeDays, rates, cachedThrough.claude)
+  ]);
+  const claudeLimits = claudeLimitsFromQuota(liveClaudeUsage.quota);
   const codexUsage = aggregateCodexUsage(rawCodexAccounts, safeDays, lifetime);
   const codexCoverage = includeAllCodexAccountUsage(cacheData, codexUsage);
   const openCodeStats = parseOpenCodeStats(openCodeText);
-  let daily = seedDaily(safeDays);
+  const daily = seedDaily(safeDays);
 
-  const providers = providerBlueprints.map((provider) => ({ ...provider }));
+  const providers = providerBlueprints.map((provider) => ({ ...provider, status: "unavailable", accounts: null, latency: null, sessions: null }));
   const codex = providers.find((provider) => provider.id === "codex");
   const claude = providers.find((provider) => provider.id === "claude");
   const commandcode = providers.find((provider) => provider.id === "commandcode");
@@ -620,40 +1081,46 @@ async function getSnapshot(days) {
   if (openCodeStats?.tokens > 0) {
     opencode.tokens = openCodeStats.tokens;
     opencode.cost = estimateCost(opencodeBaseCost, opencodeBaseTokens, opencode.tokens);
-    opencode.accounts = 1;
     opencode.source = "OpenCode stats";
   }
-  // Cursor exposes connection health but not token totals, so it stays visible
-  // without contributing fabricated tokens or API cost.
+  // Detection describes an observed local source, not a provider connection or
+  // authentication check. A missing session count stays unknown.
+  const cachedProviders = new Set(Object.values(cache?.files || {}).map((file) => file?.p));
+  codex.accounts = rawCodexAccounts.filter((account) => account.connected).length;
+  codex.status = codex.accounts > 0 || cachedProviders.has("codex") || liveCodexUsage.records > 0 ? "detected" : "unavailable";
+  claude.status = cachedProviders.has("claude") || liveClaudeUsage.records > 0 ? "detected" : "unavailable";
+  commandcode.status = commandCodeData.detected ? "detected" : "unavailable";
+  opencode.status = openCodeStats ? "detected" : "unavailable";
+  codex.sessions = cachedProviders.has("codex") || liveCodexUsage.records > 0 ? cacheData.aggregate.codex.sessions : null;
+  claude.sessions = cachedProviders.has("claude") || liveClaudeUsage.records > 0 ? cacheData.aggregate.claude.sessions : null;
+  commandcode.sessions = commandCodeData.detected ? commandCodeData.sessions : null;
+  opencode.sessions = openCodeStats?.sessions ?? null;
 
-  daily = daily.map((point) => ({
-    ...point,
-    codex: hasPricedCodexTranscripts ? cacheData.daily[point.date]?.codex.cost || 0 : codexUsage.daily[point.date] || 0,
-    codexTokens: hasPricedCodexTranscripts ? cacheData.daily[point.date]?.codex.tokens || 0 : codexUsage.daily[point.date] || 0,
-    claude: hasPricedClaudeTranscripts ? cacheData.daily[point.date]?.claude.cost || 0 : point.claude,
-    claudeTokens: hasPricedClaudeTranscripts ? cacheData.daily[point.date]?.claude.tokens || 0 : 0
-  }));
-  if (commandCodeData.tokens > 0) {
-    daily = daily.map((point) => ({ ...point, commandcode: commandCodeData.dailyCost[point.date] || 0, commandcodeTokens: commandCodeData.daily[point.date] || 0 }));
+  const openCodePointTotal = openCodeStats?.tokens > 0 ? daily.reduce((sum, point) => sum + point.opencode, 0) : 0;
+  for (const point of daily) {
+    const measured = cacheData.daily[point.date];
+    point.codex = hasPricedCodexTranscripts ? measured?.codex.cost || 0 : codexUsage.daily[point.date] || 0;
+    point.codexTokens = hasPricedCodexTranscripts ? measured?.codex.tokens || 0 : codexUsage.daily[point.date] || 0;
+    point.claudeTokens = hasPricedClaudeTranscripts ? measured?.claude.tokens || 0 : 0;
+    if (hasPricedClaudeTranscripts) point.claude = measured?.claude.cost || 0;
+    if (commandCodeData.tokens > 0) {
+      point.commandcode = commandCodeData.dailyCost[point.date] || 0;
+      point.commandcodeTokens = commandCodeData.daily[point.date] || 0;
+    }
+    if (openCodePointTotal) point.opencode = Math.round((point.opencode / openCodePointTotal) * openCodeStats.tokens);
   }
 
-  if (openCodeStats?.tokens > 0) {
-    const pointTotal = daily.reduce((sum, point) => sum + point.opencode, 0);
-    daily = daily.map((point) => ({ ...point, opencode: pointTotal ? Math.round((point.opencode / pointTotal) * openCodeStats.tokens) : point.opencode }));
-  }
-
-  if (!hasPricedCodexTranscripts) daily = distributeCost(daily, "codex", codex.cost, codex.tokens);
-  if (!hasPricedClaudeTranscripts) daily = distributeCost(daily, "claude", claude.cost, claude.tokens);
-  if (!(commandCodeData.tokens > 0 && commandCodeData.cost > 0)) daily = distributeCost(daily, "commandcode", commandcode.cost, commandcode.tokens);
-  daily = distributeCost(daily, "cursor", cursor.cost, cursor.tokens);
-  daily = distributeCost(daily, "opencode", opencode.cost, opencode.tokens);
+  if (!hasPricedCodexTranscripts) distributeCost(daily, "codex", codex.cost, codex.tokens);
+  if (!hasPricedClaudeTranscripts) distributeCost(daily, "claude", claude.cost, claude.tokens);
+  if (!(commandCodeData.tokens > 0 && commandCodeData.cost > 0)) distributeCost(daily, "commandcode", commandcode.cost, commandcode.tokens);
+  distributeCost(daily, "cursor", cursor.cost, cursor.tokens);
+  distributeCost(daily, "opencode", opencode.cost, opencode.tokens);
 
   const totalCost = providers.reduce((sum, provider) => sum + provider.cost, 0);
   const totalTokens = providers.reduce((sum, provider) => sum + provider.tokens, 0);
   providers.forEach((provider) => {
     provider.share = totalCost ? (provider.cost / totalCost) * 100 : 0;
     provider.tokenShare = totalTokens ? (provider.tokens / totalTokens) * 100 : 0;
-    provider.sessions = provider.id === "codex" ? cacheData.aggregate.codex.sessions || codexUsage.accounts.length || 42 : provider.id === "claude" ? cacheData.aggregate.claude.sessions || 24 : provider.id === "opencode" ? openCodeStats?.sessions || 31 : provider.id === "commandcode" ? commandCodeData.sessions || 18 : 12;
   });
 
   const commandModels = Object.entries(commandCodeData.models).map(([name, usage]) => ({ name, provider: "commandcode", tokens: usage.tokens, cost: usage.cost }));
@@ -674,15 +1141,19 @@ async function getSnapshot(days) {
     rangeKey: lifetime ? "lifetime" : String(safeDays),
     mode: cache ? "local adapters + account usage + session cache" : "local adapters + preview data",
     codexAccounts: codexUsage.accounts,
+    limits: { claude: claudeLimits },
     providers,
     daily,
     models: liveModels,
     pricing: {
-      source: "LiteLLM model_prices_and_context_window.json",
+      source: "LiteLLM model_prices_and_context_window.json + built-in current model fallbacks",
       fetchedAt: ratesCache?.fetchedAtMs || null,
       knownModels: rates.size,
+      fallbackModels: [...builtInModelRates.keys()],
       method: "T3-compatible per-model API estimate"
     },
+    liveCodexUsage,
+    liveClaudeUsage,
     summary: {
       totalCost,
       totalTokens,
@@ -696,9 +1167,21 @@ async function getSnapshot(days) {
       costBasis: "api_estimate_from_observed_tokens",
       subscriptionChargesIncluded: false,
       codexCoverage,
-      activeSessions: providers.reduce((sum, provider) => sum + provider.sessions, 0)
+      activeSessions: providers.reduce((sum, provider) => sum + (provider.sessions ?? 0), 0),
+      observedSessions: providers.reduce((sum, provider) => sum + (provider.sessions ?? 0), 0),
+      sessionCountBasis: "unique_observed_sessions_in_selected_range"
     }
   };
+}
+
+function snapshotCacheKey(days) {
+  return String(days).toLowerCase() === "lifetime" ? "lifetime" : String(clamp(Number(days) || 30, 7, 90));
+}
+
+const cachedSnapshot = memoizeAsync(snapshotTtlMs, buildSnapshot);
+
+function getSnapshot(days) {
+  return cachedSnapshot(snapshotCacheKey(days));
 }
 
 function contentType(filePath) {
@@ -706,30 +1189,70 @@ function contentType(filePath) {
   return { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg" }[ext] || "application/octet-stream";
 }
 
+const publicRoot = publicDir.endsWith(path.sep) ? publicDir : `${publicDir}${path.sep}`;
+const staticFileCache = new Map();
+const staticFileCacheLimit = 2 * 1024 * 1024;
+
+function notFound() {
+  const error = new Error("Not found");
+  error.code = "ENOENT";
+  return error;
+}
+
+// The dashboard assets are static for the life of a run, so they are validated
+// by stat and served from memory. Browsers revalidate with If-None-Match and
+// normally get a 304 instead of another ~130 KB of JS and CSS.
+async function readStaticFile(filePath) {
+  const stats = await fs.stat(filePath);
+  if (!stats.isFile()) throw notFound();
+  const etag = `W/"${stats.size.toString(16)}-${Math.round(stats.mtimeMs).toString(16)}"`;
+  const cached = staticFileCache.get(filePath);
+  if (cached?.etag === etag) return cached;
+  const entry = { body: await fs.readFile(filePath), etag, type: contentType(filePath) };
+  if (stats.size <= staticFileCacheLimit) staticFileCache.set(filePath, entry);
+  else staticFileCache.delete(filePath);
+  return entry;
+}
+
 const server = http.createServer(async (request, response) => {
   try {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      response.writeHead(405, { Allow: "GET, HEAD", "Content-Type": "text/plain; charset=utf-8" });
+      response.end("Method not allowed");
+      return;
+    }
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
     if (url.pathname === "/api/usage") {
       const payload = await getSnapshot(url.searchParams.get("days"));
-      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-      response.end(JSON.stringify(payload));
+      const body = Buffer.from(JSON.stringify(payload));
+      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Content-Length": body.length });
+      response.end(request.method === "HEAD" ? undefined : body);
       return;
     }
 
     const pathname = url.pathname === "/" ? "/index.html" : url.pathname.endsWith("/") ? `${url.pathname}index.html` : url.pathname;
     const requested = decodeURIComponent(pathname);
     const filePath = path.resolve(publicDir, `.${requested}`);
-    if (!filePath.startsWith(publicDir)) {
-      response.writeHead(403);
+    // `startsWith(publicDir)` alone would also accept a sibling directory whose
+    // name merely begins with the public root.
+    if (filePath !== publicDir && !filePath.startsWith(publicRoot)) {
+      response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("Forbidden");
       return;
     }
-    const body = await fs.readFile(filePath);
-    response.writeHead(200, { "Content-Type": contentType(filePath), "Cache-Control": "no-cache", "Content-Security-Policy": "frame-ancestors 'none'" });
-    response.end(body);
+    const file = await readStaticFile(filePath);
+    const headers = { "Content-Type": file.type, "Cache-Control": "no-cache", ETag: file.etag, "Content-Security-Policy": "frame-ancestors 'none'" };
+    if (request.headers["if-none-match"] === file.etag) {
+      response.writeHead(304, headers);
+      response.end();
+      return;
+    }
+    response.writeHead(200, { ...headers, "Content-Length": file.body.length });
+    response.end(request.method === "HEAD" ? undefined : file.body);
   } catch (error) {
-    response.writeHead(error.code === "ENOENT" ? 404 : 500, { "Content-Type": "text/plain; charset=utf-8" });
-    response.end(error.code === "ENOENT" ? "Not found" : "Server error");
+    const missing = error.code === "ENOENT" || error.code === "EISDIR" || error.code === "ENOTDIR";
+    response.writeHead(missing ? 404 : 500, { "Content-Type": "text/plain; charset=utf-8" });
+    response.end(missing ? "Not found" : "Server error");
   }
 });
 
@@ -739,4 +1262,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   });
 }
 
-export { getSnapshot, normalizeCodexAccount, server, stabilizeCodexAccount };
+export {
+  buildDateRange,
+  claudeLimitsFromQuota,
+  getSnapshot,
+  normalizeCodexAccount,
+  normalizeModelName,
+  parseRateTable,
+  priceTokens,
+  rateLimitWindow,
+  server,
+  stabilizeCodexAccount
+};

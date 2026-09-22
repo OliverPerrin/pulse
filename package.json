@@ -12,6 +12,7 @@
   "type": "module",
   "main": "desktop/main.mjs",
   "scripts": {
+    "test": "node --test tests/*.test.mjs",
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
     "desktop": "node desktop/run-electron.cjs",
@@ -33,6 +34,8 @@
     },
     "files": [
       "app.js",
+      "dashboard-insights.js",
+      "dashboard-insights.css",
       "index.html",
       "styles.css",
       "server.mjs",
