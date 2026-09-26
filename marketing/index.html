@@ -6,7 +6,8 @@
     <meta name="theme-color" content="#090a0d" />
     <meta name="description" content="Pulse is the local-first desktop view for AI coding usage, remaining limits, reset times, tokens, and API-equivalent cost." />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'none'; base-uri 'self'" />
-    <title>Pulse — Local AI coding usage</title>
+    <title>Usage Pulse — Your coding usage, in focus</title>
+    <link rel="canonical" href="https://usagepulse.vercel.app/" />
     <link rel="icon" href="./assets/pulse-icon.png" type="image/png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -25,36 +26,39 @@
         <a href="#local-first">Local-first</a>
         <a href="#download">Download</a>
       </nav>
-      <a class="nav-download" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.1/Pulse-0.1.1-arm64.dmg"><span>Download for Mac</span><i>↘</i></a>
+      <a class="nav-download" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.3/Pulse-0.1.3-arm64.dmg"><span>Download for Mac</span><i>↘</i></a>
     </header>
 
     <main id="top">
       <section class="hero section-shell">
         <div class="hero-copy" data-reveal>
           <div class="eyebrow"><i></i><span>macOS first · local by design</span></div>
-          <h1>Know your limits<br /><span>before they stop the work.</span></h1>
-          <p>Pulse brings every coding account, usage window, token, model, and API-equivalent cost into one quiet desktop utility.</p>
+          <h1>Your coding usage.<br /><span>In focus.</span></h1>
+          <p>See your account limits, reset times, and token usage together. A clearer view of your coding tools, right on your Mac.</p>
           <div class="hero-actions">
-            <a class="primary-cta" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.1/Pulse-0.1.1-arm64.dmg"><span class="cta-icon">⌘</span><span><strong>Download Pulse</strong><small>macOS · Apple silicon</small></span><i>↘</i></a>
+            <a class="primary-cta" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.3/Pulse-0.1.3-arm64.dmg"><span class="cta-icon">⌘</span><span><strong>Download Pulse</strong><small>macOS · Apple silicon</small></span><i>↘</i></a>
             <a class="secondary-cta" href="#product">See how it works <span>↓</span></a>
           </div>
-          <div class="hero-trust"><span class="live-dot"></span><span>No login. No cloud account. No usage data leaves your Mac.</span></div>
+          <div class="hero-trust"><span class="live-dot"></span><span>No new account. No manual server setup. Your dashboard stays on your Mac.</span></div>
         </div>
 
-        <div class="product-stage" data-reveal data-delay="1" aria-label="Pulse desktop and menu bar preview">
-          <div class="stage-glow"></div>
+        <div class="product-stage" aria-label="Illustrative Usage Pulse dashboard preview">
+          <div class="stage-glow" aria-hidden="true"></div>
           <article class="desktop-preview">
-            <div class="window-bar"><span class="traffic"><i></i><i></i><i></i></span><span>Pulse</span><span class="window-status"><i></i> Synced</span></div>
-            <div class="desktop-screenshot-wrap"><img class="desktop-screenshot" src="./assets/pulse-dashboard-graph.png" alt="Pulse desktop dashboard showing the live usage graph, cost total, provider series, alerts, and sync pipeline" /></div>
+            <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span>Usage Pulse</span><span class="window-status">Illustrative preview</span></div>
+            <div class="preview-content">
+              <div class="preview-title"><strong>Account headroom</strong><span>At a glance</span></div>
+              <div class="preview-accounts">
+                <div class="preview-account"><span>Account 01</span><div class="preview-ring" data-value="74%" role="img" aria-label="74 percent remaining"></div><small>Available</small></div>
+                <div class="preview-account"><span>Account 02</span><div class="preview-ring" data-value="38%" role="img" aria-label="38 percent remaining"></div><small>Available</small></div>
+                <div class="preview-account"><span>Account 03</span><div class="preview-ring" data-value="0%" role="img" aria-label="0 percent remaining"></div><small>At limit</small></div>
+              </div>
+              <div class="preview-chart"><div><span>Usage over time</span><span>Last 7 days</span></div>
+                <svg viewBox="0 0 400 95" role="img" aria-label="Example usage trend over seven days"><path d="M0 80H400M0 45H400M0 10H400" fill="none" stroke="#ffffff0d"/><path d="M0 75L55 62L110 70L170 24L225 40L280 16L340 32L400 8" fill="none" stroke="#77e4c5" stroke-width="3" stroke-linejoin="round"/><path d="M0 88L55 80L110 85L170 60L225 68L280 48L340 62L400 42" fill="none" stroke="#a2baff" stroke-width="2" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
           </article>
-
-          <article class="tray-preview">
-            <header><span><img src="./assets/pulse-icon.png" alt="" /><strong>PULSE</strong></span><i>↗</i></header>
-            <div class="tray-total"><span>Cost · last 30 days</span><strong>$7,482.73</strong><small>API estimate</small></div>
-            <div class="tray-metrics"><span><small>Tokens</small><strong>10.42B</strong></span><span><small>Sessions</small><strong>247</strong></span></div>
-            <div class="tray-section"><label>Account limits</label><div><span>C1 · .codex<small>7D · Sep 5</small></span><b>53%</b></div><div><span>C2 · .codex-alt<small>5H / 7D · Sep 6</small></span><b>100/88%</b></div><div><span>C3 · .codex-alt2<small>30D · Sep 18</small></span><b class="danger">0%</b></div></div>
-            <footer><i></i><span>Updated just now</span><b>00:15</b></footer>
-          </article>
+          <p class="preview-caption"><span aria-hidden="true">⌁</span><span>A full dashboard when you need the detail. A menu-bar companion for everything else.</span></p>
         </div>
       </section>
 
@@ -78,7 +82,7 @@
           <div class="local-core"><img src="./assets/pulse-icon.png" alt="" /><strong>ON DEVICE</strong><small>127.0.0.1</small></div>
           <span class="local-node node-one">Codex</span><span class="local-node node-two">Claude</span><span class="local-node node-three">OpenCode</span>
         </div>
-        <div class="local-copy" data-reveal data-delay="1"><span class="section-number">02 / LOCAL-FIRST</span><h2>Your usage data stays<br />where your work happens.</h2><p>Pulse has no cloud account, no team layer, and no remote telemetry service. It reads aggregate usage locally and stores preferences on your device.</p><ul><li><i>✓</i><span><strong>No credentials copied</strong><small>Authentication files stay with each provider.</small></span></li><li><i>✓</i><span><strong>No cloud sync required</strong><small>The desktop app talks to its own loopback server.</small></span></li><li><i>✓</i><span><strong>Fail-soft snapshots</strong><small>Partial provider refreshes do not erase valid usage.</small></span></li></ul></div>
+        <div class="local-copy" data-reveal data-delay="1"><span class="section-number">02 / LOCAL-FIRST</span><h2>Your usage data stays<br />where your work happens.</h2><p>Pulse has no cloud account, no team layer, and no remote telemetry service. It reads aggregate usage locally and stores preferences on your device.</p><ul><li><i>✓</i><span><strong>Your existing accounts</strong><small>Connect through the local tools you already use.</small></span></li><li><i>✓</i><span><strong>No cloud sync required</strong><small>Open the app and it starts everything it needs.</small></span></li><li><i>✓</i><span><strong>Clear sync status</strong><small>Keep your last snapshot when a provider is unavailable.</small></span></li></ul></div>
       </section>
 
       <section class="download-section section-shell" id="download" data-reveal>
@@ -86,9 +90,9 @@
         <img src="./assets/pulse-icon.png" alt="Pulse icon" />
         <span class="section-number">PULSE FOR macOS</span>
         <h2>Keep your limits in sight.</h2>
-        <p>Built first for Apple silicon. Windows and Linux follow after the macOS experience is settled.</p>
-        <a class="primary-cta" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.1/Pulse-0.1.1-arm64.dmg"><span class="cta-icon">⌘</span><span><strong>Download Pulse 0.1.1</strong><small>macOS 15+ · Apple silicon</small></span><i>↘</i></a>
-        <small class="release-note">Local development preview · unsigned build</small>
+        <p>Open the app, check your headroom, and get back to work. Available for Apple silicon Macs.</p>
+        <a class="primary-cta" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.3/Pulse-0.1.3-arm64.dmg"><span class="cta-icon">⌘</span><span><strong>Download Pulse 0.1.3</strong><small>macOS 15+ · Apple silicon</small></span><i>↘</i></a>
+        <small class="release-note">Personal-use preview · ad-hoc signed · not notarized</small>
       </section>
     </main>
 

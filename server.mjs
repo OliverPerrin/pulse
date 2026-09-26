@@ -236,11 +236,19 @@ function stabilizeCodexAccount(account) {
 function readCodexRateLimits(account) {
   return new Promise((resolve) => {
     const codexCommand = process.env.CODEX_BIN || "codex";
-    const child = spawn(codexCommand, ["app-server", "--listen", "stdio://"], {
-      cwd: __dirname,
-      env: { ...process.env, CODEX_HOME: account.home },
-      stdio: ["pipe", "pipe", "ignore"]
-    });
+    let child;
+    try {
+      child = spawn(codexCommand, ["app-server", "--listen", "stdio://"], {
+        // In a packaged app __dirname is inside app.asar, which is not a real
+        // directory a child process can use. The user's home works in both modes.
+        cwd: homeDir,
+        env: { ...process.env, CODEX_HOME: account.home },
+        stdio: ["pipe", "pipe", "ignore"]
+      });
+    } catch {
+      resolve(normalizeCodexAccount(account, null));
+      return;
+    }
     let buffer = "";
     let settled = false;
     let requestSent = false;
@@ -280,6 +288,7 @@ function readCodexRateLimits(account) {
       }
     });
     child.on("error", () => finish(null));
+    child.stdin.on("error", () => finish(null));
     child.on("close", () => finish(null));
     sendJsonLine(child, { id: 1, method: "initialize", params: { clientInfo: { name: "usage-pulse", version: "0.1.0" }, capabilities: { experimentalApi: true } } });
   });

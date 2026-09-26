@@ -27,7 +27,7 @@ let trayStatus = { lowestRemaining: null, accounts: [], warningCount: 0, paused:
 let applicationIcon = null;
 
 app.setName('Pulse');
-if (isDevelopment) {
+if (isDevelopment || smokeTest) {
   const developmentUserData = smokeTest
     ? path.join(os.tmpdir(), `pulse-smoke-${process.pid}`)
     : path.join(app.getPath('appData'), 'Pulse Development');
@@ -84,7 +84,6 @@ async function startLocalServer() {
 }
 
 function iconPath() {
-  if (app.isPackaged) return path.join(process.resourcesPath, 'pulse-icon.png');
   return path.join(projectDir, 'marketing', 'assets', 'pulse-icon.png');
 }
 
@@ -372,7 +371,9 @@ async function bootstrap() {
   if (isMac) {
     app.setActivationPolicy('regular');
     await app.dock?.show();
-    app.dock?.setIcon(applicationIcon);
+    // Installed apps use the native bundle icon, including macOS appearance
+    // variants. A runtime PNG override bypasses that rendering.
+    if (isDevelopment) app.dock?.setIcon(applicationIcon);
   }
   app.setAboutPanelOptions({
     applicationName: 'Pulse',
@@ -387,6 +388,13 @@ async function bootstrap() {
   createTray();
 
   if (smokeTest) {
+    const apiResponse = await fetch(`${baseUrl}/api/usage?days=30`);
+    if (!apiResponse.ok) throw new Error(`Usage API returned HTTP ${apiResponse.status}`);
+    const apiSnapshot = await apiResponse.json();
+    const imageChecks = await Promise.all([mainWindow, trayWindow].map((window) => window.webContents.executeJavaScript(`
+      Promise.all([...document.images].map(image => image.decode().then(() => image.naturalWidth > 0, () => false)))
+        .then(results => results.length > 0 && results.every(Boolean))
+    `)));
     // Loading begins with empty, unreported data. Wait for the first real
     // snapshot, then render the hidden surfaces as if the user opened them.
     for (const window of [mainWindow, trayWindow]) sendSurfaceVisibility(window, true);
@@ -432,6 +440,10 @@ async function bootstrap() {
     const expectedWindowCount = trayStatus.accounts.reduce((sum, account) => sum + account.windows.length, 0);
     const result = {
       baseUrl,
+      apiSnapshotValid: Number.isFinite(apiSnapshot.fetchedAt)
+        && !/preview|loading/i.test(apiSnapshot.mode || '')
+        && Array.isArray(apiSnapshot.providers) && Array.isArray(apiSnapshot.codexAccounts),
+      dashboardImagesLoaded: imageChecks.every(Boolean),
       mainLoaded: mainWindow?.webContents.getURL().includes('surface=desktop') || false,
       trayLoaded: trayWindow?.webContents.getURL().includes('surface=tray') || false,
       iconLoaded: !nativeImage.createFromPath(iconPath()).isEmpty(),
@@ -455,6 +467,9 @@ async function bootstrap() {
     };
     console.log(`PULSE_SMOKE ${JSON.stringify(result)}`);
     isQuitting = true;
+    const failed = Object.entries(result).filter(([key, value]) => key !== 'baseUrl' && value !== true);
+    if (failed.length) throw new Error(`Smoke checks failed: ${failed.map(([key]) => key).join(', ')}`);
+    clearTimeout(smokeTimeout);
     setTimeout(() => app.quit(), 120);
   }
 }
@@ -469,8 +484,14 @@ app.on('window-all-closed', () => {
   // Pulse remains available in the menu bar until the user explicitly quits.
 });
 
+const smokeTimeout = smokeTest ? setTimeout(() => {
+  console.error('Pulse smoke test timed out');
+  app.exit(1);
+}, 90000) : null;
+
 app.whenReady().then(bootstrap).catch((error) => {
   console.error('Pulse failed to start', error);
   isQuitting = true;
-  app.quit();
+  clearTimeout(smokeTimeout);
+  app.exit(1);
 });

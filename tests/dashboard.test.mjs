@@ -6,11 +6,32 @@ import { claudeLimitsFromQuota, normalizeCodexAccount, rateLimitWindow, stabiliz
 
 const appSource = await readFile(new URL('../app.js', import.meta.url), 'utf8');
 const desktopSource = await readFile(new URL('../desktop/main.mjs', import.meta.url), 'utf8');
+const serverSource = await readFile(new URL('../server.mjs', import.meta.url), 'utf8');
 const futureReset = () => Math.floor(Date.now() / 1000) + 3600;
 const accountFixture = (id, windows = []) => ({
   id, profile: id, plan: 'plus', planSource: 'providerReported', connected: true,
   exact: true, rateFetchedAt: Date.now(), usageExact: true, usageFetchedAt: Date.now(),
   dailyUsage: [], lifetimeTokens: 0, windows
+});
+
+test('packaged Codex probes use a real directory and contain synchronous launch failures', async () => {
+  let options;
+  const context = vm.createContext({
+    process: { env: {} }, homeDir: '/Users/test',
+    __dirname: '/Applications/Pulse.app/Contents/Resources/app.asar',
+    normalizeCodexAccount,
+    spawn: (_command, _args, suppliedOptions) => {
+      options = suppliedOptions;
+      throw Object.assign(new Error('spawn ENOTDIR'), { code: 'ENOTDIR' });
+    }
+  });
+  vm.runInContext(serverSource.slice(serverSource.indexOf('function readCodexRateLimits('), serverSource.indexOf('async function readCodexAccounts(')), context);
+  const readAccount = vm.runInContext('readCodexRateLimits', context);
+  const result = await readAccount({ id: 'missing', profile: '.missing', home: '/Users/test/.codex', fallbackPlan: 'plus' });
+  assert.equal(options.cwd, '/Users/test');
+  assert.equal(options.env.CODEX_HOME, '/Users/test/.codex');
+  assert.equal(result.connected, false);
+  assert.deepEqual(result.windows, []);
 });
 
 function loadDashboard(accounts = [], { tray = false } = {}) {

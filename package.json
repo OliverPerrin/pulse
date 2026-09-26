@@ -1,6 +1,6 @@
 {
   "name": "pulse-desktop",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Local-first AI coding usage, limits, and cost intelligence.",
   "author": "Oliver Perrin",
   "license": "MIT",
@@ -45,16 +45,10 @@
       "Pulse-icon.icon/**/*",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "marketing/assets/pulse-icon.png",
-        "to": "pulse-icon.png"
-      }
-    ],
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "Pulse-icon.icon",
-      "identity": null,
+      "identity": "-",
       "hardenedRuntime": false,
       "target": [
         {

@@ -11,7 +11,7 @@ npm start
 
 Then open <http://127.0.0.1:5173>.
 
-The marketing/download site is available at <http://127.0.0.1:5173/marketing/>.
+The marketing/download site is available locally at <http://127.0.0.1:5173/marketing/> and in production at <https://usagepulse.vercel.app>.
 
 ## Repository and license
 
@@ -39,7 +39,9 @@ npm run desktop:pack
 npm run desktop:dist
 ```
 
-The Apple-silicon DMG is written to `release/Pulse-0.1.1-arm64.dmg`. This development artifact is intentionally unsigned; production distribution still needs an Apple Developer ID certificate and notarization.
+The Apple-silicon DMG is written to `release/Pulse-0.1.3-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
+
+Verify the packaged app with `release/mac-arm64/Pulse.app/Contents/MacOS/Pulse --smoke-test` (unset `ELECTRON_RUN_AS_NODE` if your terminal sets it). This checks the live API, both renderer surfaces, decoded dashboard images, and exits nonzero on failures.
 
 Versioned DMGs are attached to private GitHub Releases rather than committed to Git or bundled into the Vercel deployment. The current private release link requires GitHub access to the repository.
 
