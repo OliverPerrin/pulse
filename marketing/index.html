@@ -3,100 +3,86 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#090a0d" />
-    <meta name="description" content="Pulse is the local-first desktop view for AI coding usage, remaining limits, reset times, tokens, and API-equivalent cost." />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'none'; base-uri 'self'" />
-    <title>Usage Pulse — Your coding usage, in focus</title>
+    <meta name="theme-color" content="#080a0b" />
+    <meta name="description" content="Your AI usage, at a glance. Pulse brings account limits, reset times, and usage into one local Mac app." />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'" />
+    <title>Pulse — A little more headroom</title>
     <link rel="canonical" href="https://usagepulse.vercel.app/" />
     <link rel="icon" href="./assets/pulse-icon.png" type="image/png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="site-noise" aria-hidden="true"></div>
-    <header class="site-header" id="site-header">
-      <a class="site-brand" href="#top" aria-label="Pulse home">
-        <img src="./assets/pulse-icon.png" alt="" />
-        <span><strong>PULSE</strong><small>Usage intelligence</small></span>
-      </a>
-      <nav aria-label="Website navigation">
-        <a href="#product">Product</a>
-        <a href="#local-first">Local-first</a>
-        <a href="#download">Download</a>
-      </nav>
-      <a class="nav-download" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.3/Pulse-0.1.3-arm64.dmg"><span>Download for Mac</span><i>↘</i></a>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="header wrap">
+      <a class="wordmark" href="#" aria-label="Pulse home"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M2 18h6l4-12 7 21 4-13 3 4h4" /></svg>pulse</a>
+      <nav aria-label="Main navigation"><a href="#product">The app</a><a href="#download" class="nav-download">Download</a></nav>
     </header>
 
-    <main id="top">
-      <section class="hero section-shell">
-        <div class="hero-copy" data-reveal>
-          <div class="eyebrow"><i></i><span>macOS first · local by design</span></div>
-          <h1>Your coding usage.<br /><span>In focus.</span></h1>
-          <p>See your account limits, reset times, and token usage together. A clearer view of your coding tools, right on your Mac.</p>
-          <div class="hero-actions">
-            <a class="primary-cta" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.3/Pulse-0.1.3-arm64.dmg"><span class="cta-icon">⌘</span><span><strong>Download Pulse</strong><small>macOS · Apple silicon</small></span><i>↘</i></a>
-            <a class="secondary-cta" href="#product">See how it works <span>↓</span></a>
-          </div>
-          <div class="hero-trust"><span class="live-dot"></span><span>No new account. No manual server setup. Your dashboard stays on your Mac.</span></div>
+    <main id="main">
+      <section class="hero wrap" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 id="hero-title">A little more<br /><span>headroom.</span></h1>
+          <p>Your AI limits, usage, and reset times.<br class="desktop-break" /> One less thing to think about.</p>
+          <a class="button" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.3/Pulse-0.1.3-arm64.dmg">Download for Mac</a>
+          <span class="platform">Free. Local. Yours.</span>
         </div>
+        <div class="sculpture" id="sculpture" aria-hidden="true">
+          <div class="sculpture-light"></div>
+          <svg class="sculpture-fallback" viewBox="0 0 500 500"><defs><linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e2fff0"/><stop offset=".35" stop-color="#7dd8b2"/><stop offset=".55" stop-color="#193c31"/><stop offset=".75" stop-color="#d4ffdf"/><stop offset="1" stop-color="#397c64"/></linearGradient></defs><path d="M111 276C45 97 301 42 326 189S228 420 159 318 284 123 363 208 296 439 203 358 133 106 274 139" fill="none" stroke="url(#metal)" stroke-width="40" stroke-linecap="round"/></svg>
+          <canvas id="pulse-canvas"></canvas>
+          <div class="sculpture-shadow"></div>
+        </div>
+      </section>
 
-        <div class="product-stage" aria-label="Illustrative Usage Pulse dashboard preview">
-          <div class="stage-glow" aria-hidden="true"></div>
-          <article class="desktop-preview">
-            <div class="window-bar"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span>Usage Pulse</span><span class="window-status">Illustrative preview</span></div>
-            <div class="preview-content">
-              <div class="preview-title"><strong>Account headroom</strong><span>At a glance</span></div>
-              <div class="preview-accounts">
-                <div class="preview-account"><span>Account 01</span><div class="preview-ring" data-value="74%" role="img" aria-label="74 percent remaining"></div><small>Available</small></div>
-                <div class="preview-account"><span>Account 02</span><div class="preview-ring" data-value="38%" role="img" aria-label="38 percent remaining"></div><small>Available</small></div>
-                <div class="preview-account"><span>Account 03</span><div class="preview-ring" data-value="0%" role="img" aria-label="0 percent remaining"></div><small>At limit</small></div>
-              </div>
-              <div class="preview-chart"><div><span>Usage over time</span><span>Last 7 days</span></div>
-                <svg viewBox="0 0 400 95" role="img" aria-label="Example usage trend over seven days"><path d="M0 80H400M0 45H400M0 10H400" fill="none" stroke="#ffffff0d"/><path d="M0 75L55 62L110 70L170 24L225 40L280 16L340 32L400 8" fill="none" stroke="#77e4c5" stroke-width="3" stroke-linejoin="round"/><path d="M0 88L55 80L110 85L170 60L225 68L280 48L340 62L400 42" fill="none" stroke="#a2baff" stroke-width="2" stroke-linejoin="round"/></svg>
+      <section class="product wrap" id="product" aria-label="Explore Pulse">
+        <div class="demo-controls" role="tablist" aria-label="Product preview">
+          <button type="button" id="limits-tab" role="tab" aria-selected="true" aria-controls="limits-view">Your limits</button>
+          <button type="button" id="usage-tab" role="tab" aria-selected="false" aria-controls="usage-view" tabindex="-1">Your usage</button>
+        </div>
+        <div class="demo-perspective" id="demo-perspective">
+          <div class="demo-window" id="demo-window">
+            <div class="window-top"><span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span><span>Pulse</span><span class="sample-label">Demo</span></div>
+            <div class="demo-layout">
+              <aside class="demo-sidebar" aria-hidden="true"><span class="demo-brand">pulse</span><span class="demo-nav active">Overview</span><span class="demo-nav">Accounts</span><span class="demo-nav">Models</span><span class="demo-nav">Activity</span><span class="local-status"><i></i> On your Mac</span></aside>
+              <div class="demo-main">
+                <div id="limits-view" class="demo-view" role="tabpanel" aria-labelledby="limits-tab" tabindex="0">
+                  <div class="demo-heading"><h2>Room to keep going.</h2><span><i></i> Up to date</span></div>
+                  <div class="limit-cards">
+                    <article class="limit-card"><div class="account-heading"><span>01</span><h3>Personal</h3><small>Codex</small></div><div class="gauge"><svg viewBox="0 0 140 140" aria-hidden="true"><circle class="gauge-track" cx="70" cy="70" r="60"/><circle class="gauge-fill" cx="70" cy="70" r="60" pathLength="100" stroke-dasharray="74 100"/></svg><strong>74<span>%</span></strong></div><div class="quota-state">Available</div><div class="reset"><span>Weekly reset</span><strong>Tomorrow, 9:00 AM</strong></div></article>
+                    <article class="limit-card"><div class="account-heading"><span>02</span><h3>Work</h3><small>Codex</small></div><div class="gauge lavender"><svg viewBox="0 0 140 140" aria-hidden="true"><circle class="gauge-track" cx="70" cy="70" r="60"/><circle class="gauge-fill" cx="70" cy="70" r="60" pathLength="100" stroke-dasharray="38 100"/></svg><strong>38<span>%</span></strong></div><div class="quota-state">Available</div><div class="reset"><span>Weekly reset</span><strong>Friday, 2:30 PM</strong></div></article>
+                    <article class="limit-card"><div class="account-heading"><span>03</span><h3>Side projects</h3><small>Codex</small></div><div class="gauge amber"><svg viewBox="0 0 140 140" aria-hidden="true"><circle class="gauge-track" cx="70" cy="70" r="60"/><circle class="gauge-fill" cx="70" cy="70" r="60" pathLength="100" stroke-dasharray="12 100"/></svg><strong>12<span>%</span></strong></div><div class="quota-state low">Running low</div><div class="reset"><span>Monthly reset</span><strong>Monday, 10:00 AM</strong></div></article>
+                  </div>
+                  <div class="demo-bottom"><span>Three accounts. One clear view.</span><span>Refreshes automatically</span></div>
+                </div>
+                <div id="usage-view" class="demo-view" role="tabpanel" aria-labelledby="usage-tab" tabindex="0" hidden>
+                  <div class="demo-heading"><h2>The bigger picture.</h2><span>Last 7 days</span></div>
+                  <div class="usage-summary"><div><span>Tokens processed</span><strong>24.8M</strong></div><div><span>Input from cache</span><strong>86<span>%</span></strong></div><div><span>Active sessions</span><strong>32</strong></div></div>
+                  <div class="usage-chart" role="img" aria-label="Illustrative daily token usage over seven days"><div class="chart-grid"><span>8M</span><span>4M</span><span>0</span></div><svg viewBox="0 0 640 150" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#9fe3bf" stop-opacity=".22"/><stop offset="1" stop-color="#9fe3bf" stop-opacity="0"/></linearGradient></defs><path class="chart-area" d="M0 120C40 120 58 55 100 70S166 132 210 85 260 18 310 45 365 100 410 65 460 6 510 30 570 90 640 16V150H0Z" fill="url(#chart-fill)"/><path class="chart-line" d="M0 120C40 120 58 55 100 70S166 132 210 85 260 18 310 45 365 100 410 65 460 6 510 30 570 90 640 16" fill="none" stroke="#a1e9c8" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg></div>
+                  <div class="chart-days"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+                  <div class="demo-bottom"><span>Across your local coding tools.</span><span>Observed usage, not guesswork</span></div>
+                </div>
               </div>
             </div>
-          </article>
-          <p class="preview-caption"><span aria-hidden="true">⌁</span><span>A full dashboard when you need the detail. A menu-bar companion for everything else.</span></p>
+          </div>
         </div>
+        <p class="tools">Codex <span>·</span> Claude Code <span>·</span> Command Code <span>·</span> OpenCode</p>
       </section>
 
-      <section class="provider-rail" aria-label="Supported local adapters">
-        <span>READS YOUR EXISTING LOCAL TOOLS</span>
-        <div><i>◎</i> Codex</div><div><i>✳</i> Claude Code</div><div><i>⌘</i> Command Code</div><div><i>◒</i> Cursor</div><div><i>↗</i> OpenCode</div>
+      <section class="details wrap" aria-label="Why Pulse">
+        <article><h2>Less checking.</h2><p>Every account’s headroom and reset time, without the tab-hopping.</p></article>
+        <article><h2>More perspective.</h2><p>See where your tokens go, from a single session to the whole month.</p></article>
+        <article><h2>Just your Mac.</h2><p>A full dashboard. A quiet menu-bar app. No new account needed.</p></article>
       </section>
 
-      <section class="product-section section-shell" id="product">
-        <div class="section-intro" data-reveal><span class="section-number">01 / PRODUCT</span><h2>The full picture when you want it.<br /><em>The essential signal when you don’t.</em></h2></div>
-        <div class="feature-grid">
-          <article data-reveal><span class="feature-icon">◫</span><h3>Full desktop workspace</h3><p>The local dashboard you already know, now in a dedicated macOS window with accounts, models, history, tokens, costs, balances, and reset windows.</p><small>THE COMPLETE VIEW</small></article>
-          <article data-reveal data-delay="1"><span class="feature-icon">⌁</span><h3>Always-ready menu bar</h3><p>See every account’s active limits at a glance. Open the popover for per-window reset times, warnings, balances, and sync health without opening the main window.</p><small>ONE CLICK AWAY</small></article>
-          <article data-reveal data-delay="2"><span class="feature-icon">↻</span><h3>Live local adapters</h3><p>Pulse reads the same local provider state and transcript caches you already use, preserving last-good snapshots when one response arrives late.</p><small>NO NEW WORKFLOW</small></article>
-        </div>
-      </section>
-
-      <section class="local-section section-shell" id="local-first">
-        <div class="local-visual" data-reveal>
-          <div class="local-orbit orbit-a"></div><div class="local-orbit orbit-b"></div>
-          <div class="local-core"><img src="./assets/pulse-icon.png" alt="" /><strong>ON DEVICE</strong><small>127.0.0.1</small></div>
-          <span class="local-node node-one">Codex</span><span class="local-node node-two">Claude</span><span class="local-node node-three">OpenCode</span>
-        </div>
-        <div class="local-copy" data-reveal data-delay="1"><span class="section-number">02 / LOCAL-FIRST</span><h2>Your usage data stays<br />where your work happens.</h2><p>Pulse has no cloud account, no team layer, and no remote telemetry service. It reads aggregate usage locally and stores preferences on your device.</p><ul><li><i>✓</i><span><strong>Your existing accounts</strong><small>Connect through the local tools you already use.</small></span></li><li><i>✓</i><span><strong>No cloud sync required</strong><small>Open the app and it starts everything it needs.</small></span></li><li><i>✓</i><span><strong>Clear sync status</strong><small>Keep your last snapshot when a provider is unavailable.</small></span></li></ul></div>
-      </section>
-
-      <section class="download-section section-shell" id="download" data-reveal>
-        <div class="download-glow"></div>
-        <img src="./assets/pulse-icon.png" alt="Pulse icon" />
-        <span class="section-number">PULSE FOR macOS</span>
-        <h2>Keep your limits in sight.</h2>
-        <p>Open the app, check your headroom, and get back to work. Available for Apple silicon Macs.</p>
-        <a class="primary-cta" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.3/Pulse-0.1.3-arm64.dmg"><span class="cta-icon">⌘</span><span><strong>Download Pulse 0.1.3</strong><small>macOS 15+ · Apple silicon</small></span><i>↘</i></a>
-        <small class="release-note">Personal-use preview · ad-hoc signed · not notarized</small>
+      <section class="closing wrap" id="download">
+        <svg class="closing-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M2 18h6l4-12 7 21 4-13 3 4h4" /></svg>
+        <h2>Get back to<br /><span>the good part.</span></h2>
+        <a class="button" href="https://github.com/OliverPerrin/pulse/releases/download/v0.1.3/Pulse-0.1.3-arm64.dmg">Download Pulse</a>
+        <p class="download-note">Apple silicon · macOS 15+</p>
+        <details class="release-details"><summary>About this preview</summary><p>Version 0.1.3 is ad-hoc signed and not Apple-notarized. Downloads currently require access to the GitHub repository.</p></details>
       </section>
     </main>
-
-    <footer class="site-footer section-shell"><a class="site-brand" href="#top"><img src="./assets/pulse-icon.png" alt="" /><span><strong>PULSE</strong><small>Usage intelligence</small></span></a><p>Local-first AI coding usage for macOS.</p><span>© 2026 Pulse</span></footer>
+    <footer class="footer wrap"><a class="wordmark" href="#" aria-label="Pulse home">pulse</a><span>Made for a little more focus.</span><a href="https://github.com/OliverPerrin/pulse">GitHub</a><button id="motion-toggle" type="button" aria-pressed="false">Pause motion</button></footer>
     <script type="module" src="./app.js"></script>
   </body>
 </html>
