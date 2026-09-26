@@ -931,3 +931,7 @@ th,td { padding-block: 14px; }
 
 /* A native popover needs transparent outer corners and no reserved page gutter. */
 html:has(body.desktop-tray-surface) { scrollbar-gutter: auto; background: transparent; }
+.brand-copy { min-width: 0; }
+.brand-copy small { font-family: inherit; font-size: 11px; letter-spacing: .02em; text-transform: none; white-space: normal; }
+.desktop-app-surface .brand { width: calc(100% - 58px); gap: 9px; }
+.desktop-app-surface.desktop-fullscreen .brand { width: auto; }
