@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#080a0b" />
+    <meta name="theme-color" content="#090c12" />
     <meta name="description" content="Your AI usage, at a glance. Pulse brings account limits, reset times, and usage into one local Mac app." />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'" />
     <title>Pulse — A little more headroom</title>
@@ -27,10 +27,18 @@
           <span class="platform">Free. Local. Yours.</span>
         </div>
         <div class="sculpture" id="sculpture" aria-hidden="true">
-          <div class="sculpture-light"></div>
-          <svg class="sculpture-fallback" viewBox="0 0 500 500"><defs><linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e2fff0"/><stop offset=".35" stop-color="#7dd8b2"/><stop offset=".55" stop-color="#193c31"/><stop offset=".75" stop-color="#d4ffdf"/><stop offset="1" stop-color="#397c64"/></linearGradient></defs><path d="M111 276C45 97 301 42 326 189S228 420 159 318 284 123 363 208 296 439 203 358 133 106 274 139" fill="none" stroke="url(#metal)" stroke-width="40" stroke-linecap="round"/></svg>
-          <canvas id="pulse-canvas"></canvas>
-          <div class="sculpture-shadow"></div>
+          <div class="icon-halo"></div>
+          <div class="icon-stage">
+            <div class="icon-float">
+              <div class="app-icon" id="app-icon">
+                <span class="icon-layer layer-back"></span>
+                <span class="icon-layer layer-middle"></span>
+                <span class="icon-layer layer-edge"></span>
+                <div class="icon-face"><img src="./assets/pulse-icon.png" alt="" width="512" height="512" fetchpriority="high" decoding="async" /><span class="icon-reflection"></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="icon-floor"></div>
         </div>
       </section>
 
@@ -57,7 +65,7 @@
                 <div id="usage-view" class="demo-view" role="tabpanel" aria-labelledby="usage-tab" tabindex="0" hidden>
                   <div class="demo-heading"><h2>The bigger picture.</h2><span>Last 7 days</span></div>
                   <div class="usage-summary"><div><span>Tokens processed</span><strong>24.8M</strong></div><div><span>Input from cache</span><strong>86<span>%</span></strong></div><div><span>Active sessions</span><strong>32</strong></div></div>
-                  <div class="usage-chart" role="img" aria-label="Illustrative daily token usage over seven days"><div class="chart-grid"><span>8M</span><span>4M</span><span>0</span></div><svg viewBox="0 0 640 150" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#9fe3bf" stop-opacity=".22"/><stop offset="1" stop-color="#9fe3bf" stop-opacity="0"/></linearGradient></defs><path class="chart-area" d="M0 120C40 120 58 55 100 70S166 132 210 85 260 18 310 45 365 100 410 65 460 6 510 30 570 90 640 16V150H0Z" fill="url(#chart-fill)"/><path class="chart-line" d="M0 120C40 120 58 55 100 70S166 132 210 85 260 18 310 45 365 100 410 65 460 6 510 30 570 90 640 16" fill="none" stroke="#a1e9c8" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg></div>
+                  <div class="usage-chart" role="img" aria-label="Illustrative daily token usage over seven days"><div class="chart-grid"><span>8M</span><span>4M</span><span>0</span></div><svg viewBox="0 0 640 150" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#9fbce3" stop-opacity=".22"/><stop offset="1" stop-color="#9fbce3" stop-opacity="0"/></linearGradient></defs><path class="chart-area" d="M0 120C40 120 58 55 100 70S166 132 210 85 260 18 310 45 365 100 410 65 460 6 510 30 570 90 640 16V150H0Z" fill="url(#chart-fill)"/><path class="chart-line" d="M0 120C40 120 58 55 100 70S166 132 210 85 260 18 310 45 365 100 410 65 460 6 510 30 570 90 640 16" fill="none" stroke="#a1c0e9" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg></div>
                   <div class="chart-days"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
                   <div class="demo-bottom"><span>Across your local coding tools.</span><span>Observed usage, not guesswork</span></div>
                 </div>
@@ -65,7 +73,7 @@
             </div>
           </div>
         </div>
-        <p class="tools">Codex <span>·</span> Claude Code <span>·</span> Command Code <span>·</span> OpenCode</p>
+        <div class="tools" aria-label="Supported coding tools"><span>Codex</span><span>Claude Code</span><span>Command Code</span><span>OpenCode</span></div>
       </section>
 
       <section class="details wrap" aria-label="Why Pulse">
