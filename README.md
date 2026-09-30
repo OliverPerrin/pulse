@@ -39,7 +39,7 @@ npm run desktop:pack
 npm run desktop:dist
 ```
 
-The Apple-silicon DMG is written to `release/Pulse-0.1.5-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
+The Apple-silicon DMG is written to `release/Pulse-0.1.6-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
 
 Verify the packaged app with `release/mac-arm64/Pulse.app/Contents/MacOS/Pulse --smoke-test` (unset `ELECTRON_RUN_AS_NODE` if your terminal sets it). This checks the live API, both renderer surfaces, decoded dashboard images, and exits nonzero on failures.
 
@@ -110,3 +110,5 @@ The full dashboard includes account gauges and an upcoming reset timeline, actua
 Run `npm test` for quota, reset, missing-data, cache, and desktop-bridge regressions. Run `npm run desktop:smoke` to verify both Electron surfaces against a real local snapshot.
 
 Claude subscription names are read from `claude auth status --json` and refreshed once per minute. Only plan and connection metadata reach the dashboard; quota windows remain independently reported.
+
+Claude usage windows are fetched separately from historical token totals through the installed Claude CLI’s authenticated `get_usage` control request. No model prompt is sent. The main dashboard, compact view, and menu bar show both five-hour and weekly headroom. Only sanitized utilization/reset data is cached locally. Provider cooldowns persist across app restarts, and cached allowances are labelled with their source and age; elapsed windows become unknown until refreshed.

@@ -3,6 +3,8 @@ import { execFile, spawn } from "node:child_process";
 import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readClaudeUsage } from "./claude-control.mjs";
+import { createClaudeUsageMonitor } from "./claude-cache.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +14,7 @@ const homeDir = process.env.HOME || "/Users/oliverperrin";
 const usageCachePath = path.join(homeDir, ".t3", "userdata", "usage-scan-cache.json");
 const usageRatesPath = path.join(homeDir, ".t3", "userdata", "usage-model-rates.json");
 const accountSnapshotCachePath = path.join(homeDir, ".t3", "userdata", "usage-pulse-account-cache.json");
+const claudeUsageCachePath = path.join(homeDir, ".t3", "userdata", "usage-pulse-claude-usage-cache.json");
 const commandCodeProjectsPath = path.join(homeDir, ".commandcode", "projects");
 const lifetimeLookbackDays = 3650;
 
@@ -601,6 +604,7 @@ function normalizeClaudeSubscription(status) {
   // fields leave this adapter; never forward the raw CLI response.
   return {
     connected,
+    authStatusKnown: typeof status?.loggedIn === "boolean",
     plan: plan || "Not reported",
     planSource: plan ? "providerReported" : "unreported",
     subscriptionFetchedAt: connected ? Date.now() : null
@@ -1041,6 +1045,16 @@ function includeAllCodexAccountUsage(cacheData, codexUsage) {
 
 const cachedCodexAccounts = memoizeAsync(codexAccountsTtlMs, () => readCodexAccounts());
 const cachedClaudeSubscription = memoizeAsync(60000, readClaudeSubscription);
+const currentClaudeUsage = createClaudeUsageMonitor({
+  collect: () => readClaudeUsage({ command: process.env.CLAUDE_BIN || "claude", cwd: homeDir }),
+  load: () => readJson(claudeUsageCachePath),
+  save: async (snapshot) => {
+    await fs.mkdir(path.dirname(claudeUsageCachePath), { recursive: true });
+    const temporary = `${claudeUsageCachePath}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(temporary, JSON.stringify(snapshot), { mode: 0o600 });
+    await fs.rename(temporary, claudeUsageCachePath);
+  }
+});
 const cachedOpenCodeStats = memoizeAsync(openCodeTtlMs, (days) => runCommand("opencode", ["stats", "--days", days]));
 
 async function buildSnapshot(days) {
@@ -1058,11 +1072,14 @@ async function buildSnapshot(days) {
   const rates = parseRateTable(ratesCache?.document);
   const cacheData = aggregateLocalCache(cache, safeDays, rates);
   const cachedThrough = latestCachedUsageTimestamps(cache);
-  const [liveCodexUsage, liveClaudeUsage] = await Promise.all([
+  const [liveCodexUsage, liveClaudeUsage, providerClaudeLimits] = await Promise.all([
     augmentWithRecentCodexSessions(cacheData, safeDays, rates, cachedThrough.codex),
-    augmentWithRecentClaudeSessions(cacheData, safeDays, rates, cachedThrough.claude)
+    augmentWithRecentClaudeSessions(cacheData, safeDays, rates, cachedThrough.claude),
+    currentClaudeUsage(claudeSubscription)
   ]);
-  const claudeLimits = claudeLimitsFromQuota(liveClaudeUsage.quota, claudeSubscription);
+  const transcriptClaudeLimits = claudeLimitsFromQuota(liveClaudeUsage.quota, claudeSubscription);
+  const claudeLimits = providerClaudeLimits.limits?.some(window => window.reported) || !transcriptClaudeLimits.limits?.length
+    ? providerClaudeLimits : transcriptClaudeLimits;
   const codexUsage = aggregateCodexUsage(rawCodexAccounts, safeDays, lifetime);
   const codexCoverage = includeAllCodexAccountUsage(cacheData, codexUsage);
   const openCodeStats = parseOpenCodeStats(openCodeText);

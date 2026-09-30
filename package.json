@@ -1,6 +1,6 @@
 {
   "name": "pulse-desktop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Local-first AI coding usage, limits, and cost intelligence.",
   "author": "Oliver Perrin",
   "license": "MIT",
@@ -43,6 +43,7 @@
       "index.html",
       "styles.css",
       "server.mjs",
+      "claude-*.mjs",
       "LICENSE",
       "desktop/**/*",
       "marketing/**/*",

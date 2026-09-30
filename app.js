@@ -172,6 +172,17 @@ function providerLimits(providerId) {
   };
 }
 
+function currentLimitProviders() {
+  const providers = [...currentProviders()];
+  for (const [id, limits] of Object.entries(state.snapshot.limits || {})) {
+    if (id === 'codex' || !providerMeta[id] || providers.some((provider) => provider.id === id)) continue;
+    if (limits?.connected || limits?.limits?.length || limits?.planSource === 'providerReported') {
+      providers.push({ id, name: providerMeta[id].name, shortName: providerMeta[id].name, color: providerMeta[id].color });
+    }
+  }
+  return providers;
+}
+
 function formatDate(date, options = { month: 'short', day: 'numeric' }) {
   return dateTimeFormat(options).format(new Date(`${date}T12:00:00`));
 }
@@ -264,7 +275,7 @@ function currentHeadroom() {
     reset: resetLabel(window.resetsAt),
     target: '#limits'
   })));
-  const otherWindows = currentProviders().filter((provider) => provider.id !== 'codex').flatMap((provider) => {
+  const otherWindows = currentLimitProviders().filter((provider) => provider.id !== 'codex').flatMap((provider) => {
     const meta = providerLimits(provider.id);
     return (meta?.limits || []).map((window) => ({
       id: `${provider.id}-${window.tag}`,
@@ -279,8 +290,10 @@ function currentHeadroom() {
 }
 
 function currentAccountLimits() {
-  return currentCodexAccounts().map((account, index) => ({
+  const accounts = currentCodexAccounts().map((account, index) => ({
     id: account.id || `codex-account-${index + 1}`,
+    providerId: 'codex',
+    identityTag: `C${index + 1}`,
     profile: account.profile || `Codex ${index + 1}`,
     plan: planLabel(account.plan),
     windows: (account.windows || []).map((window) => {
@@ -294,6 +307,22 @@ function currentAccountLimits() {
       };
     })
   }));
+  const claude = state.snapshot.limits?.claude;
+  if (claude && (claude.connected || claude.limits?.length || claude.planSource === 'providerReported')) {
+    accounts.push({
+      id: 'claude-subscription', providerId: 'claude', identityTag: 'Claude',
+      profile: 'Claude', plan: claude.plan || 'Not reported',
+      windows: (claude.limits || []).map((window) => {
+        const remaining = windowRemaining(window, 'remaining');
+        return {
+          tag: window.tag || 'LIVE', label: window.label || 'Current window', remaining,
+          displayRemaining: remaining === null ? null : displayPercent(remaining),
+          reset: `${claude.stale || window.stale ? 'Cached · ' : ''}${resetLabel(window.resetsAt)}`
+        };
+      })
+    });
+  }
+  return accounts;
 }
 
 function creditSummary() {
@@ -526,14 +555,17 @@ function renderCodexAccounts() {
 }
 
 function renderLimits() {
-  const providers = currentProviders().filter((provider) => provider.id !== 'codex');
+  const providers = currentLimitProviders().filter((provider) => provider.id !== 'codex');
   document.querySelector('#limits-grid').innerHTML = providers.map((provider) => {
     const meta = providerLimits(provider.id);
     const limits = meta.limits || [];
+    const sourceNote = limits.length && (meta.stale || meta.message)
+      ? `<div class="provider-unknown"><div>${meta.stale ? `<span class="snapshot-source">Cached limits · Last checked ${escapeHtml(snapshotAge(meta.fetchedAt))}</span>` : ''}${meta.message ? `<p>${escapeHtml(meta.message)}</p>` : ''}</div></div>`
+      : '';
     return `<article class="limit-card provider-limit" style="--provider-color:${provider.color}"><div class="limit-card-top"><div class="limit-provider">${renderProviderGlyph(provider.id)}<span class="limit-provider-copy"><strong>${escapeHtml(provider.name)}</strong><small>${escapeHtml(meta.note || 'Local adapter')}</small></span></div><span class="plan-pill">${escapeHtml(meta.plan || 'Not reported')}</span></div>${limits.length ? `<div class="limit-rows">${limits.map((limit) => {
       const remaining = windowRemaining(limit, 'remaining');
       return `<div class="limit-row"><div class="limit-row-head"><span>${escapeHtml(limit.label)}</span><strong>${remaining === null ? 'Not reported' : `${displayPercent(remaining)}% left`}</strong></div><div class="limit-track"><span style="--remaining:${remaining ?? 0}%"></span></div><div class="limit-row-meta"><span>${escapeHtml(limit.tag)} WINDOW</span><span>${escapeHtml(limit.resetsAt ? resetLabel(limit.resetsAt) : limit.reset || 'Reset not reported')}</span></div></div>`;
-    }).join('')}</div>` : `<div class="provider-unknown"><span class="unknown-mini">—</span><div><strong>${meta.unlimited ? 'Provider-managed limits' : 'Allowance not reported'}</strong><p>${escapeHtml(meta.message || 'Limits are set by the connected API provider. No remaining allowance was reported locally.')}</p></div></div>`}</article>`;
+    }).join('')}</div>` : `<div class="provider-unknown"><span class="unknown-mini">—</span><div><strong>${meta.unlimited ? 'Provider-managed limits' : 'Allowance not reported'}</strong><p>${escapeHtml(meta.message || 'Limits are set by the connected API provider. No remaining allowance was reported locally.')}</p></div></div>`}${sourceNote}</article>`;
   }).join('');
 }
 
@@ -663,7 +695,7 @@ function renderCompactView() {
   document.querySelector('#compact-period').textContent = `${selectedPeriodLabel()} · API estimate`;
   document.querySelector('#compact-status').innerHTML = `<div><span>Processed tokens</span><strong>${formatTokens(summary.processedTokens)}</strong></div><div><span>Cache savings</span><strong>${formatCurrency(summary.estimatedUncachedValueAvoided ?? summary.cacheSavings)}</strong></div><div><span>Sessions</span><strong>${summary.activeSessions || 0}</strong></div>`;
   document.querySelector('#compact-limits-title').textContent = 'Account limits';
-  document.querySelector('#compact-headroom').innerHTML = accountLimits.length ? accountLimits.map((account, accountIndex) => `<div class="compact-account-limit"><div class="compact-account-identity"><span>C${accountIndex + 1}</span><span><strong>${escapeHtml(account.profile)}</strong><small>${escapeHtml(account.plan)}</small></span></div><div class="compact-account-windows">${account.windows.length ? account.windows.map((window) => `<div class="compact-window-limit"><div class="compact-window-line"><span><i>${escapeHtml(window.tag)}</i><small>${escapeHtml(window.reset)}</small></span><b class="${window.remaining !== null && window.remaining < 20 ? 'is-low' : ''}">${window.remaining === null ? '—' : `${window.displayRemaining}%`}</b></div><div class="compact-window-meter ${window.remaining !== null && window.remaining < 20 ? 'is-low' : ''}"><span style="width:${window.remaining ?? 0}%"></span></div></div>`).join('') : '<small class="compact-unreported">No current limit reported</small>'}</div></div>`).join('') : '<p class="empty-copy">No account limits reported.</p>';
+  document.querySelector('#compact-headroom').innerHTML = accountLimits.length ? accountLimits.map((account) => `<div class="compact-account-limit"><div class="compact-account-identity"><span>${escapeHtml(account.identityTag)}</span><span><strong>${escapeHtml(account.profile)}</strong><small>${escapeHtml(account.plan)}</small></span></div><div class="compact-account-windows">${account.windows.length ? account.windows.map((window) => `<div class="compact-window-limit"><div class="compact-window-line"><span><i>${escapeHtml(window.tag)}</i><small>${escapeHtml(window.reset)}</small></span><b class="${window.remaining !== null && window.remaining < 20 ? 'is-low' : ''}">${window.remaining === null ? '—' : `${window.displayRemaining}%`}</b></div><div class="compact-window-meter ${window.remaining !== null && window.remaining < 20 ? 'is-low' : ''}"><span style="width:${window.remaining ?? 0}%"></span></div></div>`).join('') : '<small class="compact-unreported">No current limit reported</small>'}</div></div>`).join('') : '<p class="empty-copy">No account limits reported.</p>';
   document.querySelector('#compact-alerts').innerHTML = alerts.length ? alerts.map((item) => `<button class="compact-alert ${item.level}" type="button" data-target="${item.target}"><span class="icon">${icon(item.icon)}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span></button>`).join('') : '<div class="compact-clear"><span class="icon">' + icon('check') + '</span><span>Nothing needs attention</span></div>';
   hydrateIcons(document.querySelector('#compact-dashboard'));
   reportTrayStatus();

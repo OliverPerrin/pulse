@@ -246,6 +246,10 @@ function trayWindowLabel(window) {
   return percent === null ? '—' : `${percent}%`;
 }
 
+function trayAccountTag(account, index) {
+  return account.identityTag || `C${index + 1}`;
+}
+
 let trayPresentation = { title: null, tooltip: null };
 
 function updateTrayPresentation() {
@@ -255,11 +259,11 @@ function updateTrayPresentation() {
   const warnings = trayStatus.warningCount === 1 ? '1 warning' : `${trayStatus.warningCount} warnings`;
   const accountTitle = trayStatus.accounts.map((account, index) => {
     const values = account.windows.map((window) => trayWindowLabel(window)).join('/');
-    return `C${index + 1} ${values || '—'}`;
+    return `${trayAccountTag(account, index)} ${values || '—'}`;
   }).join(' · ');
   const accountTooltip = trayStatus.accounts.map((account, index) => {
     const windows = account.windows.map((window) => `${window.tag} ${trayWindowLabel(window)}`).join(', ');
-    return `C${index + 1} ${account.profile}: ${windows || 'not reported'}`;
+    return `${trayAccountTag(account, index)} ${account.profile}: ${windows || 'not reported'}`;
   }).join(' · ');
   const tooltip = `Pulse · ${accountTooltip || `${remaining} lowest headroom`} · ${warnings} · ${health}`;
   // A status payload arrives on every renderer poll, but the menu-bar text only
@@ -278,7 +282,7 @@ function updateTrayPresentation() {
 function trayMenu() {
   const remaining = Number.isFinite(trayStatus.lowestRemaining) ? `${displayPercent(trayStatus.lowestRemaining)}% lowest headroom` : 'Waiting for usage snapshot';
   const accountItems = trayStatus.accounts.map((account, index) => ({
-    label: `C${index + 1} ${account.profile} · ${account.windows.map((window) => `${window.tag} ${trayWindowLabel(window)}`).join(' · ') || 'not reported'}`,
+    label: `${trayAccountTag(account, index)} ${account.profile} · ${account.windows.map((window) => `${window.tag} ${trayWindowLabel(window)}`).join(' · ') || 'not reported'}`,
     enabled: false
   }));
   return Menu.buildFromTemplate([
@@ -324,6 +328,8 @@ function registerIpc() {
     const lowestRemaining = safePercent(payload.lowestRemaining);
     const accounts = Array.isArray(payload.accounts) ? payload.accounts.slice(0, 8).map((account, index) => ({
       id: String(account?.id || `codex-account-${index + 1}`).slice(0, 80),
+      providerId: String(account?.providerId || 'codex').slice(0, 40),
+      identityTag: String(account?.identityTag || `C${index + 1}`).slice(0, 12),
       profile: String(account?.profile || `Codex ${index + 1}`).slice(0, 80),
       plan: String(account?.plan || 'Unknown').slice(0, 40),
       windows: Array.isArray(account?.windows) ? account.windows.slice(0, 4).map((window) => ({
@@ -483,7 +489,7 @@ async function bootstrap() {
       trayStatusReported: Number.isFinite(trayStatus.fetchedAt) && trayStatus.accounts.length > 0
         && (trayStatus.lowestRemaining === null || Number.isFinite(trayStatus.lowestRemaining)),
       menuBarAllAccountsReady: !isMac || (trayStatus.accounts.length > 0
-        && trayStatus.accounts.every((_account, index) => tray.getTitle().includes(`C${index + 1} `)))
+        && trayStatus.accounts.every((account, index) => tray.getTitle().includes(`${trayAccountTag(account, index)} `)))
     };
     console.log(`PULSE_SMOKE ${JSON.stringify(result)}`);
     isQuitting = true;
