@@ -39,7 +39,7 @@ npm run desktop:pack
 npm run desktop:dist
 ```
 
-The Apple-silicon DMG is written to `release/Pulse-0.1.6-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
+The Apple-silicon DMG is written to `release/Pulse-0.1.7-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
 
 Verify the packaged app with `release/mac-arm64/Pulse.app/Contents/MacOS/Pulse --smoke-test` (unset `ELECTRON_RUN_AS_NODE` if your terminal sets it). This checks the live API, both renderer surfaces, decoded dashboard images, and exits nonzero on failures.
 
@@ -112,3 +112,5 @@ Run `npm test` for quota, reset, missing-data, cache, and desktop-bridge regress
 Claude subscription names are read from `claude auth status --json` and refreshed once per minute. Only plan and connection metadata reach the dashboard; quota windows remain independently reported.
 
 Claude usage windows are fetched separately from historical token totals through the installed Claude CLI’s authenticated `get_usage` control request. No model prompt is sent. The main dashboard, compact view, and menu bar show both five-hour and weekly headroom. Only sanitized utilization/reset data is cached locally. Provider cooldowns persist across app restarts, and cached allowances are labelled with their source and age; elapsed windows become unknown until refreshed.
+
+The dashboard opens with Claude and Codex subscription allowances. Date-range controls apply to the usage history below; current quota windows are independent of that range. Account details, usage patterns, and source diagnostics expand on demand, and navigation opens any collapsed section it targets. The compact view also puts subscription usage first.

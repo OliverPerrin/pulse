@@ -17,7 +17,7 @@ const smokeTest = process.argv.includes('--smoke-test');
 const readyFileIndex = process.argv.indexOf('--updater-ready-file');
 const updaterReadyFile = readyFileIndex >= 0 ? process.argv[readyFileIndex + 1] : null;
 const preferredPort = Number(process.env.PULSE_DESKTOP_PORT) || (isDevelopment ? 5188 : 5187);
-const allowedTargets = new Set(['#overview', '#attention', '#limits', '#accounts', '#breakdown', '#activity-log']);
+const allowedTargets = new Set(['#overview', '#attention', '#limits', '#usage', '#usage-insights', '#accounts', '#breakdown', '#activity-log']);
 
 let baseUrl = '';
 let mainWindow = null;

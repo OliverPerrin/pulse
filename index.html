@@ -39,13 +39,12 @@
         </div>
 
         <nav class="nav-list">
-          <a class="nav-item active" href="#overview"><span class="icon" data-icon="grid"></span><span>Overview</span><em>01</em></a>
-          <a class="nav-item" href="#attention"><span class="icon" data-icon="alert"></span><span>Attention</span><em id="nav-alert-count">00</em></a>
-          <a class="nav-item" href="#limits"><span class="icon" data-icon="shield"></span><span>Subscriptions</span><em>02</em></a>
-          <a class="nav-item" href="#usage"><span class="icon" data-icon="bar-chart"></span><span>Usage insights</span><em>03</em></a>
-          <a class="nav-item" href="#accounts"><span class="icon" data-icon="layers"></span><span>Accounts</span><em>03</em></a>
-          <a class="nav-item" href="#breakdown"><span class="icon" data-icon="bar-chart"></span><span>Models</span><em>04</em></a>
-          <a class="nav-item" href="#activity-log"><span class="icon" data-icon="activity"></span><span>Activity</span><em class="nav-live-dot"></em></a>
+          <a class="nav-item active" href="#limits"><span class="icon" data-icon="shield"></span><span>Subscriptions</span></a>
+          <a class="nav-item" href="#usage"><span class="icon" data-icon="bar-chart"></span><span>Usage history</span></a>
+          <a class="nav-item" href="#breakdown"><span class="icon" data-icon="layers"></span><span>Models</span></a>
+          <a class="nav-item" href="#accounts"><span class="icon" data-icon="grid"></span><span>Local sources</span></a>
+          <a class="nav-item" href="#activity-log"><span class="icon" data-icon="activity"></span><span>Activity</span></a>
+          <a class="nav-item" href="#attention"><span class="icon" data-icon="alert"></span><span>Alerts</span><em id="nav-alert-count">00</em></a>
         </nav>
 
         <div class="sidebar-bottom">
@@ -58,7 +57,7 @@
 
       <main class="main-content" id="top">
         <header class="topbar">
-          <div class="breadcrumb"><span class="mobile-menu icon" data-icon="menu"></span><span class="crumb-muted">Workspace</span><span class="crumb-slash">/</span><strong>Usage</strong></div>
+          <div class="breadcrumb"><span class="mobile-menu icon" data-icon="menu"></span><strong>Usage Pulse</strong></div>
           <div class="topbar-actions">
             <span class="topbar-time"><span class="status-dot"></span><span id="topbar-sync-label">Updated just now</span></span>
             <button class="icon-button" id="topbar-refresh" type="button" aria-label="Refresh usage" title="Refresh usage"><span class="icon" data-icon="refresh"></span></button>
@@ -70,17 +69,10 @@
         <div class="page-wrap">
           <section class="page-heading" id="overview">
             <div>
-              <div class="eyebrow"><span class="eyebrow-line"></span><span>Your AI command center</span></div>
-              <h1>More clarity. <span>More headroom.</span></h1>
-              <p>Know what’s available, when it resets, and where your usage goes.</p>
+              <h1>Your subscriptions</h1>
+              <p>Current allowance and reset times across your coding accounts.</p>
             </div>
             <div class="heading-actions">
-              <div class="range-control" role="group" aria-label="Date range">
-                <button type="button" data-range="7">7 days</button>
-                <button type="button" data-range="30" class="active">30 days</button>
-                <button type="button" data-range="90">90 days</button>
-                <button type="button" data-range="lifetime">Lifetime</button>
-              </div>
               <button class="sync-button" id="sync-button" type="button"><span class="icon" data-icon="refresh"></span><span>Sync all</span></button>
             </div>
           </section>
@@ -90,23 +82,30 @@
             <div class="banner-meta"><span class="mono" id="last-sync-text">LAST SYNC 00:00:00</span><span class="banner-divider"></span><button type="button" id="live-toggle"><span class="status-dot"></span><span>Live mode</span><span class="icon" data-icon="chevron-down"></span></button></div>
           </section>
 
-          <section class="command-metrics" id="command-metrics" aria-label="Usage summary"></section>
 
           <section class="section-block limits-section" id="limits">
-            <div class="section-heading-row"><div><span class="section-label">01 / Account availability</span><h2>Subscription command center</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Windows refresh with each sync</span><button class="text-button" type="button" id="limit-help">About limits <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
-            <div class="limits-subheading"><span>Codex CLI profiles</span><span class="mono" id="account-limit-summary">Provider-reported windows</span></div>
-            <div class="limit-overview" id="limit-overview"></div>
+            <div class="section-heading-row"><div><h2>Current allowance</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Windows refresh with each sync</span><button class="text-button" type="button" id="limit-help">About limits</button></div></div>
             <div class="codex-accounts-grid" id="codex-accounts-grid"></div>
-            <details class="other-limits" open><summary>Other providers <span>Plans, allowances &amp; data availability</span><span class="icon" data-icon="chevron-down"></span></summary><div class="limits-grid" id="limits-grid"></div></details>
-            <p class="limits-footnote">Each window is a separate allowance. The lowest remaining window is shown on each account’s gauge. Credits and subscription fees are separate.</p>
+            <details class="other-limits"><summary>Other local tools <span>Plans and allowance availability</span><span class="icon" data-icon="chevron-down"></span></summary><div class="limits-grid" id="limits-grid"></div></details>
+            <details class="reset-details"><summary>All upcoming resets <span id="account-limit-summary"></span></summary><div class="limit-overview" id="limit-overview"></div></details>
           </section>
 
+          <details class="dashboard-details alerts-disclosure"><summary>Alerts and balances</summary>
           <section class="attention-section" id="attention">
-            <div class="section-heading-row"><div><span class="section-label">What needs you</span><h2>Alerts &amp; headroom</h2></div><button class="text-button" type="button" id="open-alerts">Open notification center <span class="icon" data-icon="arrow-right"></span></button></div>
+            <div class="section-heading-row"><div><h2>Needs attention</h2></div><button class="text-button" type="button" id="open-alerts">Open notification center <span class="icon" data-icon="arrow-right"></span></button></div>
             <div class="attention-grid" id="attention-grid"></div>
           </section>
 
-          <div class="section-heading-row usage-heading" id="usage"><div><span class="section-label">02 / Usage intelligence</span><h2>Usage over time</h2></div><span class="muted-small">Selected period · API estimates, not subscription charges</span></div>
+          </details>
+
+          <div class="section-heading-row usage-heading" id="usage"><div><h2>Usage history</h2><p class="muted-small">Token activity and estimated API value</p></div><div class="heading-actions"><div class="range-control" role="group" aria-label="Date range">
+                <button type="button" data-range="7">7 days</button>
+                <button type="button" data-range="30" class="active">30 days</button>
+                <button type="button" data-range="90">90 days</button>
+                <button type="button" data-range="lifetime">Lifetime</button>
+              </div></div></div>
+          <section class="command-metrics" id="command-metrics" aria-label="Usage summary"></section>
+
           <section class="overview-grid">
             <article class="card chart-card">
               <div class="card-topline">
@@ -145,39 +144,46 @@
               </div>
             </article>
 
-            <aside class="card pulse-card" id="live-pulse">
-              <div class="pulse-card-top"><div><span class="section-label">Background telemetry</span><h2>Sync pipeline</h2></div><span class="live-chip"><i></i> LIVE</span></div>
-              <div class="pulse-orbit"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-center"><span class="brand-mark brand-mark-small"><img src="/marketing/assets/pulse-icon.png" alt="" /></span><strong id="pulse-count">05</strong><small>adapters</small></div><span class="orbit-node node-a"></span><span class="orbit-node node-b"></span><span class="orbit-node node-c"></span></div>
-              <div class="pipeline" id="pipeline"></div>
-              <div class="pulse-foot"><span class="icon" data-icon="clock"></span><span>Next poll in</span><strong id="next-poll">00:14</strong><button type="button" id="pause-live" aria-label="Pause live sync"><span class="icon" data-icon="pause"></span></button></div>
-            </aside>
+
           </section>
 
+          <details class="dashboard-details insights-disclosure"><summary>Explore usage patterns</summary>
           <section id="usage-insights" aria-label="Usage insights"></section>
           <section class="stats-strip" id="stats-strip"></section>
           <p class="value-disclosure"><span class="icon" data-icon="info"></span><span>Cost is an API estimate from observed tokens, like T3 Code usage. Subscription charges are separate. Credit balances are provider-reported.</span></p>
 
+          </details>
+
+          <details class="dashboard-details sources-disclosure"><summary>Local sources and sync</summary>
           <section class="section-block" id="accounts">
-            <div class="section-heading-row"><div><span class="section-label">Provider adapters</span><h2>Local providers</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Local adapter status</span><button class="text-button" type="button" id="manage-accounts">Review limits <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
+            <div class="section-heading-row"><div><h2>Local sources</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Local adapter status</span><button class="text-button" type="button" id="manage-accounts">Review limits <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
             <div class="account-grid" id="account-grid"></div>
           </section>
 
+            <aside class="card pulse-card" id="live-pulse">
+              <div class="pulse-card-top"><div><h2>Sync status</h2></div><span class="live-chip"><i></i> LIVE</span></div>
+              <div class="pulse-orbit"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-center"><span class="brand-mark brand-mark-small"><img src="/marketing/assets/pulse-icon.png" alt="" /></span><strong id="pulse-count">05</strong><small>adapters</small></div><span class="orbit-node node-a"></span><span class="orbit-node node-b"></span><span class="orbit-node node-c"></span></div>
+              <div class="pipeline" id="pipeline"></div>
+              <div class="pulse-foot"><span class="icon" data-icon="clock"></span><span>Next poll in</span><strong id="next-poll">00:14</strong><button type="button" id="pause-live" aria-label="Pause live sync"><span class="icon" data-icon="pause"></span></button></div>
+            </aside>
+          </details>
+
           <section class="details-grid">
             <article class="card breakdown-card" id="breakdown">
-              <div class="section-heading-row compact"><div><span class="section-label">Across all providers</span><h2>Model breakdown</h2></div><div class="table-controls"><div class="table-toggle"><button type="button" class="active" data-table-mode="model">Model</button><button type="button" data-table-mode="day">Day</button></div><button class="icon-button small" type="button" aria-label="Download breakdown"><span class="icon" data-icon="download"></span></button></div></div>
+              <div class="section-heading-row compact"><div><h2>Models</h2></div><div class="table-controls"><div class="table-toggle"><button type="button" class="active" data-table-mode="model">Model</button><button type="button" data-table-mode="day">Day</button></div><button class="icon-button small" type="button" aria-label="Download breakdown"><span class="icon" data-icon="download"></span></button></div></div>
               <div class="table-filter-row"><div class="provider-filters" role="group" aria-label="Filter providers"><button type="button" class="active" data-filter="all">All</button><button type="button" data-filter="codex">Codex</button><button type="button" data-filter="claude">Claude</button><button type="button" data-filter="commandcode">Command</button><button type="button" data-filter="cursor">Cursor</button><button type="button" data-filter="opencode">OpenCode</button></div><label class="search-box"><span class="icon" data-icon="search"></span><input id="model-search" type="search" placeholder="Filter models" /></label></div>
               <div class="table-wrap"><table><thead><tr><th>Model / provider</th><th>Cost</th><th>Share</th><th>Tokens</th><th></th></tr></thead><tbody id="breakdown-body"></tbody></table></div>
               <button class="load-more" type="button" id="load-more">View all models <span class="icon" data-icon="arrow-right"></span></button>
             </article>
 
             <aside class="card activity-card" id="activity-log">
-              <div class="section-heading-row compact"><div><span class="section-label">Observed history</span><h2>Recent active days</h2></div><button class="icon-button small" type="button" aria-label="More activity"><span class="icon" data-icon="more"></span></button></div>
+              <div class="section-heading-row compact"><div><h2>Recent activity</h2></div><button class="icon-button small" type="button" aria-label="More activity"><span class="icon" data-icon="more"></span></button></div>
               <div class="activity-list" id="activity-list"></div>
               <button class="load-more" type="button" id="view-activity">Explore usage insights <span class="icon" data-icon="arrow-right"></span></button>
             </aside>
           </section>
 
-          <footer class="footer"><span>Usage Pulse <span class="footer-mark">✳</span></span><span class="mono">LOCAL-FIRST / v0.1.6</span><span>Modeled value is not billed spend.</span></footer>
+          <footer class="footer"><span>Usage Pulse <span class="footer-mark">✳</span></span><span class="mono">LOCAL-FIRST / v0.1.7</span><span>Modeled value is not billed spend.</span></footer>
         </div>
       </main>
     </div>
@@ -213,11 +219,13 @@
 
     <section class="compact-dashboard" id="compact-dashboard" aria-label="Usage Pulse compact view">
       <div class="compact-shell">
-        <header class="compact-head"><div class="compact-brand"><span class="brand-mark"><img src="/marketing/assets/pulse-icon.png" alt="" /></span><span><strong>PULSE</strong><small id="compact-workspace-name">Oliver's local</small></span></div><div><button class="icon-button" id="compact-sync" type="button" aria-label="Sync now"><span class="icon" data-icon="refresh"></span></button><button class="icon-button" id="exit-compact" type="button" aria-label="Open full dashboard"><span class="icon" data-icon="arrow-up-right"></span></button></div></header>
-        <div class="compact-value"><span>Cost</span><strong id="compact-total">$0.00</strong><small id="compact-period">Last 30 days · API estimate</small></div>
-        <div class="compact-status" id="compact-status"></div>
+        <header class="compact-head"><div class="compact-brand"><span class="brand-mark"><img src="/marketing/assets/pulse-icon.png" alt="" /></span><span><strong>PULSE</strong><small id="compact-workspace-name">Oliver's local</small></span></div><div><button class="icon-button" id="compact-sync" type="button" aria-label="Sync now"><span class="icon" data-icon="refresh"></span></button><button class="icon-button" id="exit-compact" type="button" aria-label="Open full dashboard"><span class="icon" data-icon="grid"></span></button></div></header>
         <div class="compact-section"><div class="compact-section-head"><span id="compact-limits-title">Account limits</span><a href="#limits" id="compact-open-limits">Review</a></div><div id="compact-headroom"></div></div>
         <div class="compact-section"><div class="compact-section-head"><span>Alerts</span><button type="button" id="compact-open-alerts">Open all</button></div><div id="compact-alerts"></div></div>
+        <details class="compact-usage-details"><summary>Usage summary</summary>
+        <div class="compact-value"><span>Cost</span><strong id="compact-total">$0.00</strong><small id="compact-period">Last 30 days · API estimate</small></div>
+        <div class="compact-status" id="compact-status"></div>
+        </details>
         <footer class="compact-foot"><span class="status-dot"></span><span id="compact-sync-label">Live sync online</span><span id="compact-next-poll">00:15</span></footer>
       </div>
     </section>

@@ -34,7 +34,7 @@ test('Claude limits render without Claude sessions and appear in compact view an
     { tag: '7D', label: 'Weekly window', remaining: 62, resetsAt: futureReset() }
   ] });
   ui.renderLimits();
-  const main = ui.nodes.get('#limits-grid').innerHTML;
+  const main = ui.nodes.get('#codex-accounts-grid').innerHTML;
   assert.match(main, /Claude Code/);
   assert.match(main, /35% left/);
   assert.match(main, /62% left/);
@@ -45,7 +45,7 @@ test('Claude limits render without Claude sessions and appear in compact view an
   assert.equal(accounts[2].providerId, 'claude');
   ui.renderCompactView();
   const compact = ui.nodes.get('#compact-headroom').innerHTML;
-  assert.match(compact, /<span>Claude<\/span>/);
+  assert.match(compact, /<strong>Claude<\/strong>/);
   assert.match(compact, /35%/);
   assert.match(compact, /62%/);
   assert.doesNotMatch(compact, /<span>C3<\/span>/);
@@ -61,9 +61,11 @@ test('Claude unknown and elapsed windows retain unknown percentages across surfa
   assert.ok(ui.currentAccountLimits()[2].windows.every((window) => window.remaining === null));
   assert.equal(ui.currentHeadroom().length, 2, 'only the known Codex windows participate in minima');
   ui.renderLimits();
-  assert.doesNotMatch(ui.nodes.get('#limits-grid').innerHTML, /0% left|100% left/);
+  const claudeMain = ui.nodes.get('#codex-accounts-grid').innerHTML.match(/<article[^>]+data-subscription-provider="claude"[\s\S]*?<\/article>/)?.[0];
+  assert.ok(claudeMain);
+  assert.doesNotMatch(claudeMain, /(?:^|\D)(?:0|100)% left/);
   ui.renderCompactView();
-  const claudeCard = ui.nodes.get('#compact-headroom').innerHTML.split('<span>Claude</span>')[1];
+  const claudeCard = ui.nodes.get('#compact-headroom').innerHTML.split('data-provider-id="claude"')[1];
   assert.doesNotMatch(claudeCard, /class="is-low"|null%|undefined%/);
   assert.equal(ui.payloads.at(-1).lowestRemaining, 70);
 });
@@ -89,7 +91,7 @@ test('main Claude card keeps cached percentages, source age and retry context vi
     ]
   });
   ui.renderLimits();
-  const main = ui.nodes.get('#limits-grid').innerHTML;
+  const main = ui.nodes.get('#codex-accounts-grid').innerHTML;
   assert.match(main, /53% left/);
   assert.match(main, /96% left/);
   assert.match(main, /Cached limits · Last checked 2m ago/);
