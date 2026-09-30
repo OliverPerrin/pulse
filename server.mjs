@@ -593,16 +593,43 @@ async function augmentWithRecentClaudeSessions(cacheData, days, rates, cachedThr
   return live;
 }
 
-function claudeLimitsFromQuota(quota) {
+function normalizeClaudeSubscription(status) {
+  const connected = status?.loggedIn === true && status?.authMethod === "claude.ai";
+  const plans = { pro: "Pro", max: "Max", team: "Team", enterprise: "Enterprise", free: "Free" };
+  const plan = connected ? plans[String(status.subscriptionType || "").toLowerCase()] : null;
+  // Account status also contains identity information. Only these display
+  // fields leave this adapter; never forward the raw CLI response.
+  return {
+    connected,
+    plan: plan || "Not reported",
+    planSource: plan ? "providerReported" : "unreported",
+    subscriptionFetchedAt: connected ? Date.now() : null
+  };
+}
+
+async function readClaudeSubscription() {
+  const output = await runCommand(process.env.CLAUDE_BIN || "claude", ["auth", "status", "--json"]);
+  try { return normalizeClaudeSubscription(JSON.parse(output)); }
+  catch { return normalizeClaudeSubscription(null); }
+}
+
+function claudeLimitsFromQuota(quota, subscription = normalizeClaudeSubscription(null)) {
+  const planMetadata = {
+    plan: subscription.plan,
+    planSource: subscription.planSource,
+    connected: subscription.connected,
+    subscriptionFetchedAt: subscription.subscriptionFetchedAt
+  };
   if (!quota) return {
-    plan: "Not reported",
-    planSource: "unreported",
-    note: "Claude Code · local quota records",
+    ...planMetadata,
+    note: subscription.connected ? "Claude Code · signed-in subscription" : "Claude Code · local quota records",
     fetchedAt: null,
     stale: false,
     status: "unreported",
     unreported: true,
-    message: "No current quota record is available. Remaining allowance and plan have not been reported."
+    message: subscription.planSource === "providerReported"
+      ? `Your Claude ${subscription.plan} subscription is connected. Remaining allowance has not been reported.`
+      : "No current quota record is available. Remaining allowance and plan have not been reported."
   };
   const rejected = quota.status === "rejected" || quota.overageStatus === "rejected";
   const isWeekly = quota.rateLimitType === "seven_day" || quota.rateLimitType === "weekly";
@@ -612,8 +639,7 @@ function claudeLimitsFromQuota(quota) {
   const expired = Number(quota.resetsAt) > 0 && Number(quota.resetsAt) * 1000 <= now;
   const stale = expired || (windowDurationMins !== null && Number(quota.fetchedAt) > 0 && now - Number(quota.fetchedAt) >= windowDurationMins * 60_000);
   const metadata = {
-    plan: "Not reported",
-    planSource: "unreported",
+    ...planMetadata,
     note: "Claude Code · local quota record",
     fetchedAt: quota.fetchedAt || null,
     stale,
@@ -1014,17 +1040,19 @@ function includeAllCodexAccountUsage(cacheData, codexUsage) {
 }
 
 const cachedCodexAccounts = memoizeAsync(codexAccountsTtlMs, () => readCodexAccounts());
+const cachedClaudeSubscription = memoizeAsync(60000, readClaudeSubscription);
 const cachedOpenCodeStats = memoizeAsync(openCodeTtlMs, (days) => runCommand("opencode", ["stats", "--days", days]));
 
 async function buildSnapshot(days) {
   const lifetime = days === "lifetime";
   const requestedDays = lifetime ? lifetimeLookbackDays : Number(days);
-  const [cache, ratesCache, commandCodeData, openCodeText, rawCodexAccounts] = await Promise.all([
+  const [cache, ratesCache, commandCodeData, openCodeText, rawCodexAccounts, claudeSubscription] = await Promise.all([
     readJson(usageCachePath),
     readJson(usageRatesPath),
     aggregateCommandCode(requestedDays),
     cachedOpenCodeStats(String(requestedDays)),
-    cachedCodexAccounts()
+    cachedCodexAccounts(),
+    cachedClaudeSubscription()
   ]);
   const safeDays = lifetime ? availableHistoryDays(cache, rawCodexAccounts, commandCodeData.earliestTimestamp) : requestedDays;
   const rates = parseRateTable(ratesCache?.document);
@@ -1034,7 +1062,7 @@ async function buildSnapshot(days) {
     augmentWithRecentCodexSessions(cacheData, safeDays, rates, cachedThrough.codex),
     augmentWithRecentClaudeSessions(cacheData, safeDays, rates, cachedThrough.claude)
   ]);
-  const claudeLimits = claudeLimitsFromQuota(liveClaudeUsage.quota);
+  const claudeLimits = claudeLimitsFromQuota(liveClaudeUsage.quota, claudeSubscription);
   const codexUsage = aggregateCodexUsage(rawCodexAccounts, safeDays, lifetime);
   const codexCoverage = includeAllCodexAccountUsage(cacheData, codexUsage);
   const openCodeStats = parseOpenCodeStats(openCodeText);
@@ -1097,7 +1125,7 @@ async function buildSnapshot(days) {
   const cachedProviders = new Set(Object.values(cache?.files || {}).map((file) => file?.p));
   codex.accounts = rawCodexAccounts.filter((account) => account.connected).length;
   codex.status = codex.accounts > 0 || cachedProviders.has("codex") || liveCodexUsage.records > 0 ? "detected" : "unavailable";
-  claude.status = cachedProviders.has("claude") || liveClaudeUsage.records > 0 ? "detected" : "unavailable";
+  claude.status = claudeSubscription.connected || cachedProviders.has("claude") || liveClaudeUsage.records > 0 ? "detected" : "unavailable";
   commandcode.status = commandCodeData.detected ? "detected" : "unavailable";
   opencode.status = openCodeStats ? "detected" : "unavailable";
   codex.sessions = cachedProviders.has("codex") || liveCodexUsage.records > 0 ? cacheData.aggregate.codex.sessions : null;
@@ -1274,6 +1302,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
 export {
   buildDateRange,
   claudeLimitsFromQuota,
+  normalizeClaudeSubscription,
   getSnapshot,
   normalizeCodexAccount,
   normalizeModelName,

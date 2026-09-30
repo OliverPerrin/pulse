@@ -39,7 +39,7 @@ npm run desktop:pack
 npm run desktop:dist
 ```
 
-The Apple-silicon DMG is written to `release/Pulse-0.1.3-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
+The Apple-silicon DMG is written to `release/Pulse-0.1.4-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
 
 Verify the packaged app with `release/mac-arm64/Pulse.app/Contents/MacOS/Pulse --smoke-test` (unset `ELECTRON_RUN_AS_NODE` if your terminal sets it). This checks the live API, both renderer surfaces, decoded dashboard images, and exits nonzero on failures.
 
@@ -86,3 +86,5 @@ The subscription command center shows each Codex account’s tightest reported a
 The full dashboard includes account gauges and an upcoming reset timeline, actual daily usage sparklines, a daily activity heatmap, provider-share donut, and token composition chart. Cost/token and date-range controls drive the usage views; subscription windows stay tied to the current provider snapshot. The heatmap shows at most 90 daily records and labels longer ranges. Model and daily breakdowns share provider and text filters.
 
 Run `npm test` for quota, reset, missing-data, cache, and desktop-bridge regressions. Run `npm run desktop:smoke` to verify both Electron surfaces against a real local snapshot.
+
+Claude subscription names are read from `claude auth status --json` and refreshed once per minute. Only plan and connection metadata reach the dashboard; quota windows remain independently reported.

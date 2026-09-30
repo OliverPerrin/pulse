@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
-import { claudeLimitsFromQuota, normalizeCodexAccount, rateLimitWindow, stabilizeCodexAccount } from '../server.mjs';
+import { claudeLimitsFromQuota, normalizeClaudeSubscription, normalizeCodexAccount, rateLimitWindow, stabilizeCodexAccount } from '../server.mjs';
 
 const appSource = await readFile(new URL('../app.js', import.meta.url), 'utf8');
 const desktopSource = await readFile(new URL('../desktop/main.mjs', import.meta.url), 'utf8');
@@ -174,6 +174,33 @@ test('Claude rejection proves zero only for a current, recognized quota window',
     assert.equal(result.unreported, true);
     assert.equal(result.limits, undefined);
   }
+});
+
+test('Claude subscription is shown independently of quota without exposing account identity', () => {
+  const subscription = normalizeClaudeSubscription({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'pro', email: 'private@example.com', orgId: 'private-org' });
+  assert.equal(subscription.plan, 'Pro');
+  assert.equal(subscription.planSource, 'providerReported');
+  assert.equal(subscription.connected, true);
+  assert.equal(subscription.email, undefined);
+  assert.equal(subscription.orgId, undefined);
+  const limits = claudeLimitsFromQuota(null, subscription);
+  assert.equal(limits.plan, 'Pro');
+  assert.equal(limits.unreported, true);
+  assert.equal(limits.limits, undefined, 'a subscription does not imply remaining allowance');
+  assert.match(limits.message, /Pro subscription is connected/);
+  const expired = claudeLimitsFromQuota({ status: 'rejected', rateLimitType: 'five_hour', resetsAt: 1 }, subscription);
+  assert.equal(expired.plan, 'Pro');
+  assert.equal(expired.limits, undefined);
+  const dashboard = loadDashboard();
+  dashboard.state.snapshot.limits.claude = limits;
+  assert.equal(dashboard.providerLimits('claude').plan, 'Pro');
+});
+
+test('Claude logout, API-key authentication and unknown plans do not fabricate a subscription', () => {
+  for (const status of [null, { loggedIn: false, authMethod: 'claude.ai', subscriptionType: 'pro' }, { loggedIn: true, authMethod: 'api_key', subscriptionType: 'pro' }, { loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'unknown-plan' }]) {
+    assert.equal(normalizeClaudeSubscription(status).planSource, 'unreported');
+  }
+  assert.equal(normalizeClaudeSubscription({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' }).plan, 'Max');
 });
 
 test('unknown and elapsed windows never become depleted alerts or tray minima', () => {
