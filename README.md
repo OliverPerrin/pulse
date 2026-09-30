@@ -53,7 +53,7 @@ On your Apple silicon Mac, enable the per-user updater once:
 npm run updater:enable
 ```
 
-It checks GitHub `main` every 60 seconds while you are logged in, including pushes made through T3 or another computer. A sleeping/offline Mac catches up on a later check. Rapid successive pushes may be coalesced to the latest commit. No Apple developer account is needed.
+It checks GitHub `main` every 60 seconds while you are logged in, including pushes made through T3 or another computer. A sleeping/offline Mac catches up on a later check. Rapid successive pushes may be coalesced to the latest commit. Updates are tracked by Git commit, so you do not need to bump the package version for each push; even website-only commits trigger a fresh local build. No Apple developer account is needed.
 
 The updater keeps a private checkout under `~/Library/Application Support/Pulse Updater`; it never checks out, resets, or installs uncommitted changes from your working repository. For each new commit it runs `npm ci`, the tests, an ad-hoc-signed app build, signature verification, and packaged smoke checks. It then replaces `/Applications/Pulse.app` and verifies the installed copy. If Pulse was running, it reopens it and waits for a real dashboard/usage acknowledgement. A closed app stays closed. A failed replacement/startup restores the previous bundle. Preferences and account files are never replaced.
 
