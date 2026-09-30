@@ -1,6 +1,6 @@
 {
   "name": "pulse-desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Local-first AI coding usage, limits, and cost intelligence.",
   "author": "Oliver Perrin",
   "license": "MIT",
@@ -19,7 +19,11 @@
     "desktop:smoke": "node desktop/run-electron.cjs --smoke-test",
     "desktop:pack": "electron-builder --mac dir --arm64",
     "desktop:dist": "electron-builder --mac dmg --arm64",
-    "site:build": "node scripts/build-marketing.mjs"
+    "site:build": "node scripts/build-marketing.mjs",
+    "updater:enable": "node scripts/local-updater.mjs enable",
+    "updater:check": "node scripts/local-updater.mjs check",
+    "updater:status": "node scripts/local-updater.mjs status",
+    "updater:disable": "node scripts/local-updater.mjs disable"
   },
   "devDependencies": {
     "electron": "44.0.0",

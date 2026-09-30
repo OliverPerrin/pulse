@@ -1,6 +1,6 @@
 import electronMain from 'electron/main';
 import electronCommon from 'electron/common';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,8 @@ const projectDir = path.dirname(__dirname);
 const isMac = process.platform === 'darwin';
 const isDevelopment = !app.isPackaged;
 const smokeTest = process.argv.includes('--smoke-test');
+const readyFileIndex = process.argv.indexOf('--updater-ready-file');
+const updaterReadyFile = readyFileIndex >= 0 ? process.argv[readyFileIndex + 1] : null;
 const preferredPort = Number(process.env.PULSE_DESKTOP_PORT) || (isDevelopment ? 5188 : 5187);
 const allowedTargets = new Set(['#overview', '#attention', '#limits', '#accounts', '#breakdown', '#activity-log']);
 
@@ -386,6 +388,24 @@ async function bootstrap() {
   createApplicationMenu();
   await Promise.all([createMainWindow(), createTrayWindow()]);
   createTray();
+
+  if (updaterReadyFile && !smokeTest) {
+    // The updater waits for this acknowledgement from the real user profile,
+    // not just a running process or a listening port.
+    const response = await fetch(`${baseUrl}/api/usage?days=30`);
+    if (!response.ok) throw new Error(`Updater startup check: HTTP ${response.status}`);
+    await mainWindow.webContents.executeJavaScript(`(async () => {
+      const deadline = Date.now() + 60000;
+      while (document.querySelector('#connection-title')?.textContent !== 'Your local usage, connected') {
+        if (Date.now() > deadline) throw new Error('Dashboard did not load a live snapshot');
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    })()`);
+    const metadata = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'));
+    const temporary = `${updaterReadyFile}.${process.pid}.tmp`;
+    writeFileSync(temporary, JSON.stringify({ pid: process.pid, version: app.getVersion(), commit: metadata.pulseBuildCommit, baseUrl }), { mode: 0o600 });
+    renameSync(temporary, updaterReadyFile);
+  }
 
   if (smokeTest) {
     const apiResponse = await fetch(`${baseUrl}/api/usage?days=30`);

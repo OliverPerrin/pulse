@@ -39,11 +39,33 @@ npm run desktop:pack
 npm run desktop:dist
 ```
 
-The Apple-silicon DMG is written to `release/Pulse-0.1.4-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
+The Apple-silicon DMG is written to `release/Pulse-0.1.5-arm64.dmg`. This local build is ad-hoc signed without an Apple developer account; trusted public distribution still needs an Apple Developer ID certificate and notarization. The installed app starts its own loopback server. Its dashboard assets are bundled directly from the same source used by `npm start`.
 
 Verify the packaged app with `release/mac-arm64/Pulse.app/Contents/MacOS/Pulse --smoke-test` (unset `ELECTRON_RUN_AS_NODE` if your terminal sets it). This checks the live API, both renderer surfaces, decoded dashboard images, and exits nonzero on failures.
 
 Versioned DMGs are attached to private GitHub Releases rather than committed to Git or bundled into the Vercel deployment. The current private release link requires GitHub access to the repository.
+
+## Automatic local updates after a push
+
+On your Apple silicon Mac, enable the per-user updater once:
+
+```bash
+npm run updater:enable
+```
+
+It checks GitHub `main` every 60 seconds while you are logged in, including pushes made through T3 or another computer. A sleeping/offline Mac catches up on a later check. Rapid successive pushes may be coalesced to the latest commit. No Apple developer account is needed.
+
+The updater keeps a private checkout under `~/Library/Application Support/Pulse Updater`; it never checks out, resets, or installs uncommitted changes from your working repository. For each new commit it runs `npm ci`, the tests, an ad-hoc-signed app build, signature verification, and packaged smoke checks. It then replaces `/Applications/Pulse.app` and verifies the installed copy. If Pulse was running, it reopens it and waits for a real dashboard/usage acknowledgement. A closed app stays closed. A failed replacement/startup restores the previous bundle. Preferences and account files are never replaced.
+
+```bash
+npm run updater:status   # Last check, installed commit, and any error
+npm run updater:check    # Check immediately (also works with the agent disabled)
+npm run updater:disable # Stop automatic checks
+```
+
+The LaunchAgent is `~/Library/LaunchAgents/com.usagepulse.updater.plist`. Logs and the transaction journal are in the updater's Application Support directory; the last rollback bundle is `/Applications/.PulseUpdater/previous.app`. Checks are locked against concurrent installs and failed commits retry with backoff. Disable automatic updates before manually restoring a rollback bundle, otherwise the latest commit will be installed again.
+
+This uses your existing GitHub credentials and Node/npm installation. The runner is copied to Application Support when enabled, so edits to local updater code do not silently change the background job. Run `updater:enable` again after changing the updater itself or moving Node/npm. The first check rebuilds the current remote commit to establish an installation receipt.
 
 ## Build and host the marketing site
 
