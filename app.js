@@ -684,11 +684,22 @@ function renderAttention() {
   hydrateIcons(document.querySelector('#attention-grid'));
 }
 
+const notificationMarkup = new WeakMap();
+
 function renderNotifications() {
   const items = notificationItems();
   const unread = unreadNotifications();
   const list = document.querySelector('#notification-list');
-  list.innerHTML = items.length ? items.map((item) => `<button class="notification-item ${item.level} ${state.readNotifications.has(item.id) ? 'is-read' : ''}" type="button" data-notification-id="${item.id}" data-target="${item.target}"><span class="notification-icon">${icon(item.icon)}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span><i></i></button>`).join('') : '<div class="notification-empty"><span class="icon">' + icon('check') + '</span><strong>You are all caught up</strong><small>No alerts or sync events are available.</small></div>';
+  const markup = items.length ? items.map((item) => `<button class="notification-item ${item.level} ${state.readNotifications.has(item.id) ? 'is-read' : ''}" type="button" data-notification-id="${item.id}" data-target="${item.target}"><span class="notification-icon">${icon(item.icon)}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span><i></i></button>`).join('') : '<div class="notification-empty"><span class="icon">' + icon('check') + '</span><strong>You are all caught up</strong><small>No alerts or sync events are available.</small></div>';
+  if (notificationMarkup.get(list) !== markup) {
+    const focusedId = document.activeElement?.dataset?.notificationId;
+    list.innerHTML = markup;
+    notificationMarkup.set(list, markup);
+    if (focusedId && activePanelId === 'notifications-panel') {
+      const previous = [...list.querySelectorAll('[data-notification-id]')].find((button) => button.dataset.notificationId === focusedId);
+      (previous || document.querySelector('#mark-all-read')).focus({ preventScroll: true });
+    }
+  }
   document.querySelector('#notification-summary').textContent = unread.length ? `${unread.length} unread notification${unread.length === 1 ? '' : 's'}` : 'No unread notifications';
   document.querySelector('#notification-dot').classList.toggle('is-hidden', unread.length === 0);
   document.querySelector('#nav-alert-count').textContent = String(items.filter((item) => item.level !== 'info').length).padStart(2, '0');
@@ -746,6 +757,7 @@ function reportTrayStatus() {
 }
 
 let hasRendered = false;
+let dashboardRenderPending = true;
 let renderQueued = false;
 // The desktop tray window disables background throttling, which pins
 // document.visibilityState to 'visible'; the main process reports the real
@@ -757,7 +769,9 @@ function isSurfaceVisible() {
 }
 
 function flushDeferredRender() {
-  if (renderQueued && isSurfaceVisible()) renderAll();
+  if (!isSurfaceVisible()) return;
+  if (renderQueued) renderAll();
+  updateSyncLabels();
 }
 
 function renderAll() {
@@ -772,6 +786,15 @@ function renderAll() {
   }
   renderQueued = false;
   hasRendered = true;
+  renderWorkspace();
+  renderSettings();
+  renderNotifications();
+  if (state.compactMode) {
+    dashboardRenderPending = true;
+    renderCompactView();
+    return;
+  }
+  dashboardRenderPending = false;
   renderSummary();
   renderStats();
   renderCommandMetrics();
@@ -783,10 +806,7 @@ function renderAll() {
   renderPipeline();
   renderActivity();
   renderChart();
-  renderNotifications();
-  renderWorkspace();
-  renderSettings();
-  renderCompactView();
+  document.body.classList.remove('compact-mode');
   hydrateIcons();
 }
 
@@ -799,6 +819,7 @@ function showToast(message) {
 }
 
 function updateSyncLabels() {
+  if (hasRendered && !isSurfaceVisible()) return;
   const elapsed = Math.max(0, Math.floor((Date.now() - (state.snapshot.fetchedAt || Date.now())) / 1000));
   const label = elapsed < 5 ? 'Updated just now' : elapsed < 60 ? `Updated ${elapsed}s ago` : `Updated ${Math.floor(elapsed / 60)}m ago`;
   document.querySelector('#topbar-sync-label').textContent = state.syncError ? 'Sync unavailable' : state.snapshot.mode === 'loading' ? 'Reading local sources…' : label;
@@ -868,17 +889,40 @@ async function syncUsage({ quiet = false } = {}) {
   }
 }
 
-function setPanel(panelId = null) {
+let activePanelId = null;
+let panelReturnFocus = null;
+
+function panelFocusableElements(panel) {
+  return [...panel.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((element) => !element.disabled && !element.hidden && element.getClientRects().length);
+}
+
+function setPanel(panelId = null, { restoreFocus = true } = {}) {
+  if (panelId === activePanelId) return;
+  if (panelId && !activePanelId) panelReturnFocus = document.activeElement;
+  activePanelId = panelId;
   const panels = ['notifications-panel', 'settings-panel'];
   panels.forEach((id) => {
     const panel = document.querySelector(`#${id}`);
     const isOpen = id === panelId;
     panel.hidden = !isOpen;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
     const control = id === 'notifications-panel' ? document.querySelector('#notifications-button') : document.querySelector('#settings-button');
     control?.setAttribute('aria-expanded', String(isOpen));
   });
   document.querySelector('#panel-scrim').hidden = !panelId;
   document.body.classList.toggle('panel-open', Boolean(panelId));
+  document.querySelector('.app-shell').inert = Boolean(panelId);
+  document.querySelector('#compact-dashboard').inert = Boolean(panelId);
+  if (panelId) {
+    const panel = document.querySelector(`#${panelId}`);
+    panel.tabIndex = -1;
+    (panelFocusableElements(panel)[0] || panel).focus({ preventScroll: true });
+  } else {
+    if (restoreFocus && panelReturnFocus?.isConnected) panelReturnFocus.focus({ preventScroll: true });
+    panelReturnFocus = null;
+  }
 }
 
 function setCompactMode(value) {
@@ -886,8 +930,9 @@ function setCompactMode(value) {
   setPanel(null);
   document.querySelector('#workspace-menu').hidden = true;
   document.querySelector('#workspace-switcher').setAttribute('aria-expanded', 'false');
-  renderCompactView();
-  if (state.compactMode) document.querySelector('#compact-sync').focus();
+  if (!state.compactMode && dashboardRenderPending) renderAll();
+  else renderCompactView();
+  document.querySelector(state.compactMode ? '#compact-sync' : '#compact-view-button').focus({ preventScroll: true });
 }
 
 function saveSettings() {
@@ -911,7 +956,9 @@ function openTarget(selector) {
   if (target) {
     let disclosure = target.closest('details');
     while (disclosure) { disclosure.open = true; disclosure = disclosure.parentElement?.closest('details'); }
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+    target.tabIndex = -1;
+    target.focus({ preventScroll: true });
     history.replaceState(null, '', selector);
   }
 }
@@ -924,10 +971,20 @@ function setupNavigation() {
     openTarget(link.getAttribute('href'));
     links.forEach((item) => item.classList.toggle('active', item === link));
   }));
+  const visibleSections = new Map();
   const observer = new IntersectionObserver((entries) => {
-    const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) visibleSections.set(entry.target, entry);
+      else visibleSections.delete(entry.target);
+    });
+    const visible = [...visibleSections.values()].sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
     if (!visible) return;
-    links.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === `#${visible.target.id}`));
+    links.forEach((link) => {
+      const isActive = link.getAttribute('href') === `#${visible.target.id}`;
+      link.classList.toggle('active', isActive);
+      if (isActive) link.setAttribute('aria-current', 'location');
+      else link.removeAttribute('aria-current');
+    });
   }, { rootMargin: '-18% 0px -68% 0px', threshold: [0, .2, .5] });
   sections.forEach((section) => observer.observe(section));
 }
@@ -936,27 +993,48 @@ function setupChartTooltip() {
   const area = document.querySelector('#chart-area');
   const tooltip = document.querySelector('#chart-tooltip');
   const line = document.querySelector('#chart-hover-line');
-  area.addEventListener('mousemove', (event) => {
+  let hoverFrame = null;
+  let pointer = null;
+  let previousPoint = null;
+  let previousMetric = null;
+  let previousSnapshot = null;
+  const renderTooltip = () => {
+    hoverFrame = null;
+    if (!pointer) return;
     const rect = area.getBoundingClientRect();
     const svgRect = document.querySelector('#usage-chart').getBoundingClientRect();
-    const offsetX = Math.max(0, Math.min(svgRect.width, event.clientX - svgRect.left));
+    const offsetX = Math.max(0, Math.min(svgRect.width, pointer.x - svgRect.left));
     const points = currentDaily();
     if (!points.length || !svgRect.width) return;
     const index = Math.min(points.length - 1, Math.max(0, Math.round(offsetX / svgRect.width * (points.length - 1))));
     const point = points[index];
-    const providers = currentProviders();
-    const values = providers.map((provider) => chartValue(point, provider.id));
     line.setAttribute('x1', offsetX * 760 / svgRect.width);
     line.setAttribute('x2', offsetX * 760 / svgRect.width);
     line.setAttribute('opacity', '1');
-    tooltip.innerHTML = `<div class="tooltip-date">${formatDate(point.date, { weekday: 'short', month: 'short', day: 'numeric' })}</div>${providers.map((provider, providerIndex) => `<div class="tooltip-row"><span class="tooltip-label"><i class="legend-dot" style="background:${provider.color}"></i>${provider.shortName}</span><b>${state.metric === 'cost' ? formatCurrency(values[providerIndex]) : formatTokens(values[providerIndex])}</b></div>`).join('')}`;
+    if (point !== previousPoint || state.metric !== previousMetric || state.snapshot !== previousSnapshot) {
+      const providers = currentProviders();
+      tooltip.innerHTML = `<div class="tooltip-date">${formatDate(point.date, { weekday: 'short', month: 'short', day: 'numeric' })}</div>${providers.map((provider) => `<div class="tooltip-row"><span class="tooltip-label"><i class="legend-dot" style="background:${provider.color}"></i>${escapeHtml(provider.shortName)}</span><b>${state.metric === 'cost' ? formatCurrency(chartValue(point, provider.id)) : formatTokens(chartValue(point, provider.id))}</b></div>`).join('')}`;
+      previousPoint = point;
+      previousMetric = state.metric;
+      previousSnapshot = state.snapshot;
+    }
     tooltip.hidden = false;
-    const tooltipWidth = 145;
-    const left = Math.max(3, Math.min(rect.width - tooltipWidth - 3, event.clientX - rect.left + 12));
+    const tooltipWidth = tooltip.offsetWidth || 145;
+    const left = Math.max(3, Math.min(rect.width - tooltipWidth - 3, pointer.x - rect.left + 12));
     tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${Math.max(8, event.clientY - rect.top - 40)}px`;
+    tooltip.style.top = `${Math.max(8, pointer.y - rect.top - 40)}px`;
+  };
+  area.addEventListener('mousemove', (event) => {
+    pointer = { x: event.clientX, y: event.clientY };
+    if (hoverFrame === null) hoverFrame = requestAnimationFrame(renderTooltip);
   });
-  area.addEventListener('mouseleave', () => { tooltip.hidden = true; line.setAttribute('opacity', '0'); });
+  area.addEventListener('mouseleave', () => {
+    pointer = null;
+    if (hoverFrame !== null) cancelAnimationFrame(hoverFrame);
+    hoverFrame = null;
+    tooltip.hidden = true;
+    line.setAttribute('opacity', '0');
+  });
 }
 
 function setupInteractions() {
@@ -1109,7 +1187,18 @@ function setupInteractions() {
     }
   });
   document.addEventListener('keydown', (event) => {
+    if (event.key === 'Tab' && activePanelId) {
+      const panel = document.querySelector(`#${activePanelId}`);
+      const focusable = panelFocusableElements(panel);
+      const first = focusable[0] || panel;
+      const last = focusable.at(-1) || panel;
+      if (!focusable.length || (event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      }
+    }
     if (event.key === 'Escape') {
+      if (activePanelId) event.preventDefault();
       setPanel(null);
       workspaceMenu.hidden = true;
       workspaceSwitcher.setAttribute('aria-expanded', 'false');

@@ -27,6 +27,8 @@ npm run desktop
 
 Pulse opens the full dashboard in a native Electron window and keeps a menu-bar item alive when the main window closes. The menu-bar title shows the current limit percentages for every configured Codex account (`C1`, `C2`, and `C3`). Clicking it opens a compact per-account view with every active window, remaining percentage, reset time, warnings, balances, costs, tokens, and sync health. Right-click it to open Pulse, force a sync, control launch-at-login, or quit.
 
+The main window resizes down to 720 × 520, remembers its position, size, and maximized state, and moves back onto an available display if a monitor is disconnected. Medium windows use a navigation rail; account cards wrap to their available space. The menu-bar popover fits its display and scrolls when needed.
+
 The desktop renderer is sandboxed, has Node integration disabled, and communicates through a narrow preload bridge. Packaged builds use a loopback-only server on port `5187`; `npm run desktop` uses its own development profile and port `5188`, so it can launch even while an installed build exists. Both fall back to an available ephemeral port if necessary. The regular `npm start` server remains independent on port `5173`.
 
 For normal daily use, mount the DMG and drag `Pulse.app` into `/Applications`. This lets macOS register the bundle and bundled icon normally. Quit an older Pulse process before replacing an existing copy. Keep `npm run desktop` for source development.
@@ -99,7 +101,7 @@ Both desktop surfaces — the main window and the menu-bar popover — poll `/ap
 
 Transcripts are streamed and pre-filtered on raw bytes rather than read into memory, so a multi-hundred-megabyte Codex rollout costs a bounded amount of memory to scan. Command Code transcripts are parsed once per file and reused until the file's size or mtime changes. Dashboard assets are served with an `ETag`, so a reload revalidates instead of re-downloading.
 
-A surface that is off screen keeps polling and keeps the menu-bar title current, but defers rebuilding its dashboard markup until it becomes visible again.
+A surface that is off screen keeps polling and keeps the menu-bar title current, but defers rebuilding its dashboard markup until it becomes visible again. Compact surfaces render only their own content. Unchanged usage insights preserve their DOM and keyboard focus; chart pointer updates run at most once per animation frame. Stable source JSON and compact transcript usage records are cached by file identity and invalidated when the file changes; the transcript cache is bounded to 16 MiB and 256 entries.
 
 The subscription command center shows each Codex account’s tightest reported allowance, every usage window, local reset times, credits, and snapshot freshness. Missing or expired allowances stay unreported. Other providers show only the plan and allowance metadata available locally; limits are never inferred from estimated API cost. Overall totals and daily series are recomputed from the selected 7/30/90-day or lifetime provider snapshot on every sync.
 

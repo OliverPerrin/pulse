@@ -1,12 +1,14 @@
 (() => {
   'use strict';
 
+  const renderedMarkup = new WeakMap();
+  const dateFormats = [false, true].map((long) => new Intl.DateTimeFormat(undefined, long ? { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric' }));
   const palette = ['#64dcc4', '#79a7ff', '#b99cff', '#ffad7d', '#f2ce75'];
   const observedNumber = (value) => value === null || value === undefined || value === '' || typeof value === 'boolean' || !Number.isFinite(Number(value)) || Number(value) < 0 ? null : Number(value);
   const safeColor = (value, index) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value || '') ? value : palette[index % palette.length];
   const defaultEscape = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
   const percent = (value) => value > 0 && value < .1 ? '<0.1%' : `${value.toFixed(1)}%`;
-  const dateLabel = (value, long = false) => new Date(`${value}T12:00:00`).toLocaleDateString(undefined, long ? { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric' });
+  const dateLabel = (value, long = false) => dateFormats[Number(long)].format(new Date(`${value}T12:00:00`));
   const icon = (kind) => {
     const paths = {
       activity: '<path d="M3 16V9m6 7V4m6 12v-5m6 5V6"/>',
@@ -104,6 +106,10 @@
       format: metric === 'tokens' ? formatTokens : formatCurrency,
       escape: typeof options.escapeHtml === 'function' ? options.escapeHtml : defaultEscape
     };
-    target.innerHTML = `<div class="insights-heading"><div><span class="insights-eyebrow">THE BIG PICTURE</span><h2 id="usage-insights-title">Usage patterns<span>.</span></h2></div><span class="insights-range">${context.escape(context.rangeLabel)}</span></div><div class="insights-grid">${activityCard(context)}${allocationCard(context)}${compositionCard(context)}</div>`;
+    const markup = `<div class="insights-heading"><div><span class="insights-eyebrow">THE BIG PICTURE</span><h2 id="usage-insights-title">Usage patterns<span>.</span></h2></div><span class="insights-range">${context.escape(context.rangeLabel)}</span></div><div class="insights-grid">${activityCard(context)}${allocationCard(context)}${compositionCard(context)}</div>`;
+    if (renderedMarkup.get(target) !== markup) {
+      target.innerHTML = markup;
+      renderedMarkup.set(target, markup);
+    }
   };
 })();

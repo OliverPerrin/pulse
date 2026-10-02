@@ -997,3 +997,77 @@ body::before { background:radial-gradient(ellipse at 90% 0,#385d8612,transparent
 @media(max-width:600px) { #sync-button { display:none; }#topbar-refresh { display:inline-grid; }.page-heading { margin-bottom:12px; }.page-heading h1 { font-size:25px; } }
 
 .compact-account-limit { grid-template-columns:120px minmax(0,1fr); }
+
+
+/* Resize from the content's available space rather than fixed account counts. */
+.codex-accounts-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.subscription-top { flex-wrap: wrap; }
+.subscription-card .codex-window-top { flex-wrap: wrap; gap: 6px 12px; }
+.subscription-source-details > summary { overflow-wrap: anywhere; }
+.command-metric, .summary-side, .chart-area, .breakdown-card, .activity-card { min-width: 0; }
+.command-metric > small, .pipeline-copy small { overflow-wrap: anywhere; }
+.legend { flex-wrap: wrap; }
+.topbar { position: sticky; top: 0; z-index: 3; background: var(--bg); }
+section[id], .usage-heading, #top { scroll-margin-top: 82px; }
+#topbar-refresh { display: inline-grid; }
+.desktop-tray-surface .compact-shell { scrollbar-gutter: stable; }
+.desktop-tray-surface .compact-window-line { flex-wrap: wrap; }
+
+/* Short windows keep every sidebar action reachable. */
+@media (min-width: 721px) and (max-height: 740px) {
+  .sidebar { overflow-y: auto; padding-bottom: 12px; }
+  .brand { margin-bottom: 18px; }
+  .workspace-switcher { margin-bottom: 18px; }
+  .sidebar-bottom { padding-top: 18px; }
+  .sidebar-status { margin-bottom: 10px; }
+  .workspace-menu { position: fixed; width: 240px; right: auto; left: 14px; }
+}
+
+/* A navigation rail gives medium windows more room for their actual content. */
+@media (min-width: 721px) and (max-width: 1050px) {
+  :root { --sidebar: 92px; }
+  .sidebar { padding-inline: 12px; align-items: center; }
+  .sidebar .brand { width: auto; margin-inline: 0; transform: none; }
+  .brand-copy, .workspace-copy, .workspace-switcher > .icon,
+  .sidebar-status, .profile-button, .nav-item > span:not(.icon), .nav-item em { display: none; }
+  .workspace-switcher { width: auto; padding: 8px; }
+  .nav-list, .sidebar-bottom { width: 100%; }
+  .nav-item { justify-content: center; min-height: 44px; padding-inline: 0; }
+  .nav-item .icon { width: 19px; height: 19px; }
+  .desktop-app-surface .sidebar { padding-top: 66px; }
+  .desktop-app-surface.desktop-fullscreen .sidebar { padding-top: 25px; }
+  .workspace-menu { position: fixed; left: 82px; top: 112px; right: auto; width: 260px; }
+  .page-wrap { width: calc(100% - 40px); }
+}
+
+@media (max-width: 720px) {
+  .sidebar { z-index: 5; }
+  .topbar { top: 62px; }
+  .mobile-menu { display: none; }
+  section[id], .usage-heading, #top { scroll-margin-top: 136px; }
+  .desktop-app-surface:not(.desktop-fullscreen) .sidebar { padding-left: 90px; -webkit-app-region: drag; }
+  .desktop-app-surface .sidebar a, .desktop-app-surface .sidebar button { -webkit-app-region: no-drag; }
+  .desktop-app-surface .sidebar .brand, .desktop-app-surface .workspace-switcher { display: none; }
+  .desktop-app-surface .nav-list { justify-content: space-evenly; }
+  .subscription-hero { gap: 16px; }
+  .connection-banner { align-items: flex-start; }
+  .banner-main strong { line-height: 1.6; }
+  .page-heading .heading-actions { flex-shrink: 0; }
+}
+@media (max-width: 480px) {
+  .connection-banner { flex-wrap: wrap; }
+  .command-metrics { grid-template-columns: 1fr 1fr; }
+  .command-metric { padding: 14px; }
+  .chart-area { height: 240px; }
+  .toast { left: 16px; right: 16px; bottom: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+@media (min-width: 721px) {
+  .page-heading { flex-direction: row; align-items: flex-start; gap: 24px; }
+  .page-heading > div:first-child { min-width: 0; }
+  .page-heading .heading-actions { width: auto; flex-shrink: 0; }
+  .page-heading h1 { font-size: clamp(27px, 2.6vw, 34px); }
+}

@@ -74,6 +74,43 @@ function readJson(filePath) {
   return fs.readFile(filePath, "utf8").then(JSON.parse).catch(() => null);
 }
 
+// The scanner rewrites these files as usage arrives. Checking their identity
+// before reusing parsed data avoids repeatedly decoding several megabytes on
+// every range change, without delaying newly written telemetry.
+function fileSignature(stats) {
+  return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
+}
+
+function createJsonFileReader({ stat = fs.stat, readFile = fs.readFile, maxEntries = 4 } = {}) {
+  const entries = new Map();
+  return async (filePath) => {
+    try {
+      const stats = await stat(filePath);
+      const signature = fileSignature(stats);
+      const cached = entries.get(filePath);
+      if (cached?.signature === signature) return await cached.value;
+      const value = readFile(filePath, "utf8").then(JSON.parse);
+      const entry = { signature, value };
+      entries.delete(filePath);
+      entries.set(filePath, entry);
+      while (entries.size > maxEntries) entries.delete(entries.keys().next().value);
+      try {
+        const result = await value;
+        if (fileSignature(await stat(filePath)) !== signature && entries.get(filePath) === entry) entries.delete(filePath);
+        return result;
+      } catch {
+        if (entries.get(filePath) === entry) entries.delete(filePath);
+        return null;
+      }
+    } catch {
+      entries.delete(filePath);
+      return null;
+    }
+  };
+}
+
+const readSourceJson = createJsonFileReader();
+
 // Serves a cached value for `ttlMs`, collapses concurrent callers onto one
 // in-flight load, and keeps the last good value when a refresh throws.
 function memoizeAsync(ttlMs, loader) {
@@ -342,55 +379,116 @@ function matchesMarker(line, markers) {
   return false;
 }
 
-async function scanJsonlFile(filePath, markers, onRecord) {
-  let used = false;
-  let carry = [];
-  let carryLength = 0;
-  const handleLine = (line) => {
-    if (line.length < 2 || !matchesMarker(line, markers)) return;
-    let record;
-    try {
-      record = JSON.parse(line.toString("utf8"));
-    } catch {
-      return;
-    }
-    if (onRecord(record) === true) used = true;
-  };
-  try {
-    for await (const chunk of createReadStream(filePath, { highWaterMark: 1 << 20 })) {
-      if (chunk.indexOf(newlineByte) === -1) {
-        // A single record can exceed the read size; hold the pieces so that a
-        // long line costs one copy rather than one per chunk.
-        carry.push(chunk);
-        carryLength += chunk.length;
-        continue;
-      }
-      let buffer = chunk;
-      if (carryLength > 0) {
-        carry.push(chunk);
-        buffer = Buffer.concat(carry, carryLength + chunk.length);
-        carry = [];
-        carryLength = 0;
-      }
-      let start = 0;
-      let newline = buffer.indexOf(newlineByte);
-      while (newline !== -1) {
-        handleLine(buffer.subarray(start, newline));
-        start = newline + 1;
-        newline = buffer.indexOf(newlineByte, start);
-      }
-      if (start < buffer.length) {
-        const tail = buffer.subarray(start);
-        carry.push(tail);
-        carryLength = tail.length;
-      }
-    }
-  } catch {
-    // A partially written or unreadable transcript still contributes whatever
-    // complete records were parsed before the failure.
+// Retain only compact usage records from stable files. Full conversation text
+// stays on disk, and a bounded LRU keeps long-running desktop sessions small.
+function createTranscriptScanner({ stat = fs.stat, readStream = createReadStream, maxCacheBytes = 16 * 1024 * 1024, maxEntries = 256 } = {}) {
+  const entries = new Map();
+  let cachedBytes = 0;
+  function remove(key) {
+    const entry = entries.get(key);
+    if (entry) cachedBytes -= entry.bytes;
+    entries.delete(key);
   }
-  if (carryLength > 0) handleLine(Buffer.concat(carry, carryLength));
-  return used;
+  return async function scanJsonlFile(filePath, markers, onRecord, project = null) {
+    const cacheKey = `${filePath}\0${markers.map(marker => marker.toString("hex")).join(":")}`;
+    const stats = project ? await stat(filePath).catch(() => null) : null;
+    const signature = stats ? fileSignature(stats) : null;
+    const cached = entries.get(cacheKey);
+    if (cached && cached.signature === signature && cached.project === project) {
+      entries.delete(cacheKey);
+      entries.set(cacheKey, cached);
+      let used = false;
+      for (const record of cached.records) if (onRecord(record) === true) used = true;
+      return used;
+    }
+    remove(cacheKey);
+    let records = project && signature ? [] : null;
+    let bytes = 0;
+    let complete = true;
+    let used = false;
+    let carry = [];
+    let carryLength = 0;
+    const handleLine = (line) => {
+      if (line.length < 2 || !matchesMarker(line, markers)) return;
+      let record;
+      try {
+        record = JSON.parse(line.toString("utf8"));
+      } catch {
+        return;
+      }
+      if (project) {
+        record = project(record);
+        if (!record) return;
+      }
+      if (records) {
+        bytes += Buffer.byteLength(JSON.stringify(record));
+        if (bytes <= maxCacheBytes) records.push(record);
+        else records = null;
+      }
+      if (onRecord(record) === true) used = true;
+    };
+    try {
+      for await (const chunk of readStream(filePath, { highWaterMark: 1 << 20 })) {
+        if (chunk.indexOf(newlineByte) === -1) {
+          // A single record can exceed the read size; hold the pieces so that a
+          // long line costs one copy rather than one per chunk.
+          carry.push(chunk);
+          carryLength += chunk.length;
+          continue;
+        }
+        let buffer = chunk;
+        if (carryLength > 0) {
+          carry.push(chunk);
+          buffer = Buffer.concat(carry, carryLength + chunk.length);
+          carry = [];
+          carryLength = 0;
+        }
+        let start = 0;
+        let newline = buffer.indexOf(newlineByte);
+        while (newline !== -1) {
+          handleLine(buffer.subarray(start, newline));
+          start = newline + 1;
+          newline = buffer.indexOf(newlineByte, start);
+        }
+        if (start < buffer.length) {
+          const tail = buffer.subarray(start);
+          carry.push(tail);
+          carryLength = tail.length;
+        }
+      }
+    } catch {
+      // A partially written or unreadable transcript still contributes whatever
+      // complete records were parsed before the failure, but is never cached.
+      complete = false;
+    }
+    if (carryLength > 0) handleLine(Buffer.concat(carry, carryLength));
+    if (records && complete && signature === fileSignature(await stat(filePath).catch(() => ({})))) {
+      remove(cacheKey);
+      entries.set(cacheKey, { signature, project, records, bytes });
+      cachedBytes += bytes;
+      while (cachedBytes > maxCacheBytes || entries.size > maxEntries) remove(entries.keys().next().value);
+    }
+    return used;
+  };
+}
+
+const scanJsonlFile = createTranscriptScanner();
+
+function projectCodexUsageRecord(record) {
+  const payload = record?.payload;
+  if (record?.type === "session_meta") return { type: record.type, payload: { id: payload?.id } };
+  if (record?.type === "turn_context") return { type: record.type, payload: { model: payload?.model } };
+  if (record?.type !== "token_usage_record" || !payload?.usage) return null;
+  return { type: record.type, timestamp: record.timestamp, payload: { response_id: payload.response_id, usage: payload.usage } };
+}
+
+function projectClaudeUsageRecord(record) {
+  if (record?.type !== "assistant" || !record.message?.usage) return null;
+  return {
+    type: record.type, timestamp: record.timestamp, uuid: record.uuid, sessionId: record.sessionId,
+    model: record.model, quotaLimits: record.quotaLimits,
+    message: { id: record.message.id, model: record.message.model, usage: record.message.usage }
+  };
 }
 
 const codexUsageMarkers = [Buffer.from("token_usage_record"), Buffer.from("turn_context"), Buffer.from("session_meta")];
@@ -512,7 +610,7 @@ async function augmentWithRecentCodexSessions(cacheData, days, rates, cachedThro
       live.tokens += tokens;
       live.cost += cost;
       return true;
-    });
+    }, projectCodexUsageRecord);
     if (used) live.files += 1;
   }
 
@@ -588,7 +686,7 @@ async function augmentWithRecentClaudeSessions(cacheData, days, rates, cachedThr
       live.tokens += tokens;
       live.cost += cost;
       return true;
-    });
+    }, projectClaudeUsageRecord);
     if (used) live.files += 1;
   }
 
@@ -1061,8 +1159,8 @@ async function buildSnapshot(days) {
   const lifetime = days === "lifetime";
   const requestedDays = lifetime ? lifetimeLookbackDays : Number(days);
   const [cache, ratesCache, commandCodeData, openCodeText, rawCodexAccounts, claudeSubscription] = await Promise.all([
-    readJson(usageCachePath),
-    readJson(usageRatesPath),
+    readSourceJson(usageCachePath),
+    readSourceJson(usageRatesPath),
     aggregateCommandCode(requestedDays),
     cachedOpenCodeStats(String(requestedDays)),
     cachedCodexAccounts(),
@@ -1318,6 +1416,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
 
 export {
   buildDateRange,
+  createJsonFileReader,
+  createTranscriptScanner,
+  projectCodexUsageRecord,
+  projectClaudeUsageRecord,
   claudeLimitsFromQuota,
   normalizeClaudeSubscription,
   getSnapshot,

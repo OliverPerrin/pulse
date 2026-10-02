@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { minimumWindowSize, restoreWindowState, trayWindowBounds } from './window-state.mjs';
 
 const { app, BrowserWindow, ipcMain, Menu, screen, shell, Tray } = electronMain;
 const { nativeImage } = electronCommon;
@@ -14,6 +15,8 @@ const projectDir = path.dirname(__dirname);
 const isMac = process.platform === 'darwin';
 const isDevelopment = !app.isPackaged;
 const smokeTest = process.argv.includes('--smoke-test');
+const screenshotsIndex = process.argv.indexOf('--smoke-screenshots-dir');
+const smokeScreenshotsDir = smokeTest && screenshotsIndex >= 0 ? process.argv[screenshotsIndex + 1] : null;
 const readyFileIndex = process.argv.indexOf('--updater-ready-file');
 const updaterReadyFile = readyFileIndex >= 0 ? process.argv[readyFileIndex + 1] : null;
 const preferredPort = Number(process.env.PULSE_DESKTOP_PORT) || (isDevelopment ? 5188 : 5187);
@@ -27,6 +30,7 @@ let trayWindow = null;
 let isQuitting = false;
 let trayStatus = { lowestRemaining: null, accounts: [], warningCount: 0, paused: false, fetchedAt: null };
 let applicationIcon = null;
+let windowStateTimer = null;
 
 app.setName('Pulse');
 if (isDevelopment || smokeTest) {
@@ -111,14 +115,54 @@ function secureWindow(window) {
   });
 }
 
+function readWindowState() {
+  try {
+    return JSON.parse(readFileSync(path.join(app.getPath('userData'), 'window-state.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function saveWindowState() {
+  clearTimeout(windowStateTimer);
+  windowStateTimer = null;
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFullScreen() || mainWindow.isMinimized()) return;
+  const destination = path.join(app.getPath('userData'), 'window-state.json');
+  const temporary = `${destination}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify({ bounds: mainWindow.getNormalBounds(), maximized: mainWindow.isMaximized() }), { mode: 0o600 });
+    renameSync(temporary, destination);
+  } catch (error) {
+    console.warn('Pulse could not save window position:', error.message);
+  }
+}
+
+function scheduleWindowStateSave() {
+  clearTimeout(windowStateTimer);
+  windowStateTimer = setTimeout(saveWindowState, 250);
+}
+
+function fitWindowsToDisplays() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const display = screen.getDisplayMatching(mainWindow.getNormalBounds());
+    const minimum = minimumWindowSize(display.workArea);
+    mainWindow.setMinimumSize(minimum.minWidth, minimum.minHeight);
+    if (!mainWindow.isFullScreen() && !mainWindow.isMaximized()) {
+      const restored = restoreWindowState({ bounds: mainWindow.getBounds() }, screen.getAllDisplays(), screen.getPrimaryDisplay());
+      mainWindow.setBounds(restored.bounds, false);
+    }
+  }
+  if (trayWindow?.isVisible() && tray) positionTrayWindow(tray.getBounds());
+}
+
 async function createMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
+  const restored = restoreWindowState(readWindowState(), screen.getAllDisplays(), screen.getPrimaryDisplay());
   mainWindow = new BrowserWindow({
     title: 'Pulse',
-    width: 1440,
-    height: 900,
-    minWidth: 1060,
-    minHeight: 700,
+    ...restored.bounds,
+    minWidth: restored.minWidth,
+    minHeight: restored.minHeight,
     show: false,
     backgroundColor: '#090a0d',
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
@@ -128,17 +172,20 @@ async function createMainWindow() {
   });
   secureWindow(mainWindow);
   mainWindow.on('close', (event) => {
+    saveWindowState();
     if (!isQuitting) {
       event.preventDefault();
       mainWindow.hide();
     }
   });
+  for (const event of ['resize', 'move', 'maximize', 'unmaximize']) mainWindow.on(event, scheduleWindowStateSave);
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.on('show', () => sendSurfaceVisibility(mainWindow, true));
   mainWindow.on('hide', () => sendSurfaceVisibility(mainWindow, false));
   mainWindow.on('enter-full-screen', () => mainWindow?.webContents.send('pulse:fullscreen-changed', true));
   mainWindow.on('leave-full-screen', () => mainWindow?.webContents.send('pulse:fullscreen-changed', false));
   await mainWindow.loadURL(`${baseUrl}/?surface=desktop`);
+  if (restored.maximized) mainWindow.maximize();
   mainWindow.webContents.send('pulse:fullscreen-changed', mainWindow.isFullScreen());
   if (!smokeTest) {
     mainWindow.show();
@@ -203,15 +250,7 @@ async function createTrayWindow() {
 function positionTrayWindow(bounds) {
   if (!trayWindow) return;
   const display = screen.getDisplayNearestPoint({ x: Math.round(bounds.x), y: Math.round(bounds.y) });
-  const { workArea } = display;
-  const [windowWidth, windowHeight] = trayWindow.getSize();
-  const centeredX = Math.round(bounds.x + bounds.width / 2 - windowWidth / 2);
-  const x = Math.max(workArea.x + 8, Math.min(centeredX, workArea.x + workArea.width - windowWidth - 8));
-  const below = Math.round(bounds.y + bounds.height + 6);
-  const y = below + windowHeight <= workArea.y + workArea.height
-    ? below
-    : Math.round(bounds.y - windowHeight - 6);
-  trayWindow.setPosition(x, y, false);
+  trayWindow.setBounds(trayWindowBounds(bounds, display.workArea), false);
 }
 
 function toggleTrayWindow(bounds = tray?.getBounds()) {
@@ -394,6 +433,7 @@ async function bootstrap() {
   createApplicationMenu();
   await Promise.all([createMainWindow(), createTrayWindow()]);
   createTray();
+  for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, fitWindowsToDisplays);
 
   if (updaterReadyFile && !smokeTest) {
     // The updater waits for this acknowledgement from the real user profile,
@@ -451,12 +491,15 @@ async function bootstrap() {
         nodeIsolated: typeof window.require === 'undefined' && typeof window.process === 'undefined',
         desktopSurface: document.body.classList.contains('desktop-app-surface'),
         snapshotLoaded: document.querySelector('#connection-title')?.textContent === 'Your local usage, connected',
+        snapshotTitle: document.querySelector('#connection-title')?.textContent,
         logoOffsetReady: getComputedStyle(document.querySelector('.brand')).transform !== 'none'
       })`),
       trayWindow.webContents.executeJavaScript(`({
         bridgeReady: Boolean(window.pulseDesktop),
         compactMode: document.body.classList.contains('compact-mode'),
-        snapshotLoaded: document.querySelector('#connection-title')?.textContent === 'Your local usage, connected',
+        snapshotLoaded: document.querySelector('#compact-headroom')?.children.length > 0
+          && /API estimate/.test(document.querySelector('#compact-period')?.textContent || ''),
+        snapshotTitle: document.querySelector('#compact-period')?.textContent,
         resetTimesVisible: /reset/i.test(document.querySelector('#compact-headroom')?.innerText || ''),
         accountLimitCount: document.querySelectorAll('#compact-headroom .compact-account-limit').length,
         remainingMeterCount: document.querySelectorAll('#compact-headroom .compact-window-meter').length,
@@ -464,6 +507,31 @@ async function bootstrap() {
       })`)
     ]);
     const expectedWindowCount = trayStatus.accounts.reduce((sum, account) => sum + account.windows.length, 0);
+    const resizeChecks = [];
+    const originalBounds = mainWindow.getBounds();
+    for (const [width, height] of [[720, 520], [900, 640], [1440, 900]]) {
+      mainWindow.setSize(width, height, false);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      resizeChecks.push(await mainWindow.webContents.executeJavaScript(`({
+        width: innerWidth,
+        height: innerHeight,
+        noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+        navigationVisible: [...document.querySelectorAll('.nav-item')].some(item => {
+          const rect = item.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth + 1;
+        })
+      })`));
+      if (smokeScreenshotsDir) {
+        mkdirSync(smokeScreenshotsDir, { recursive: true });
+        const screenshot = await mainWindow.webContents.capturePage();
+        writeFileSync(path.join(smokeScreenshotsDir, `pulse-review-${width}.png`), screenshot.toPNG());
+      }
+    }
+    mainWindow.setBounds(originalBounds, false);
+    saveWindowState();
+    const persistedWindowState = readWindowState();
+    console.log(`PULSE_RESIZE ${JSON.stringify(resizeChecks)}`);
+    console.log(`PULSE_SNAPSHOT ${JSON.stringify({ main: mainProbe.snapshotTitle, tray: trayProbe.snapshotTitle })}`);
     const result = {
       baseUrl,
       apiSnapshotValid: Number.isFinite(apiSnapshot.fetchedAt)
@@ -481,6 +549,9 @@ async function bootstrap() {
         && fullscreenLogoProbe.transform === 'matrix(1, 0, 0, 1, 0, 0)'
         && !windowedLogoProbe.fullscreenClass
         && windowedLogoProbe.transform !== fullscreenLogoProbe.transform,
+      windowResizeResponsive: resizeChecks.every((probe) => probe.noHorizontalOverflow && probe.navigationVisible),
+      windowStatePersisted: JSON.stringify(persistedWindowState?.bounds) === JSON.stringify(mainWindow.getNormalBounds())
+        && persistedWindowState?.maximized === mainWindow.isMaximized(),
       trayCompactReady: trayProbe.compactMode
         && (expectedWindowCount === 0 || trayProbe.resetTimesVisible)
         && trayProbe.accountLimitCount === trayStatus.accounts.length
@@ -502,7 +573,7 @@ async function bootstrap() {
 
 app.on('second-instance', () => { void showMainWindow('#overview'); });
 app.on('activate', () => { void showMainWindow('#overview'); });
-app.on('before-quit', () => { isQuitting = true; });
+app.on('before-quit', () => { saveWindowState(); isQuitting = true; });
 app.on('will-quit', () => {
   if (pulseServer?.listening) pulseServer.close();
 });
