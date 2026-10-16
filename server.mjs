@@ -1,4 +1,5 @@
 import http from "node:http";
+import { homedir } from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
@@ -10,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = __dirname;
 const port = Number(process.env.PORT || 5173);
-const homeDir = process.env.HOME || "/Users/oliverperrin";
+const homeDir = homedir();
 const usageCachePath = path.join(homeDir, ".t3", "userdata", "usage-scan-cache.json");
 const usageRatesPath = path.join(homeDir, ".t3", "userdata", "usage-model-rates.json");
 const accountSnapshotCachePath = path.join(homeDir, ".t3", "userdata", "usage-pulse-account-cache.json");
@@ -46,9 +47,9 @@ const providerBlueprints = [
 ];
 
 const codexAccountBlueprints = [
-  { id: "codex-main", profile: ".codex", home: path.join(homeDir, ".codex"), fallbackPlan: "plus" },
-  { id: "codex-alt", profile: ".codex-alt", home: path.join(homeDir, ".codex_alt"), fallbackPlan: "plus" },
-  { id: "codex-alt2", profile: ".codex-alt2", home: path.join(homeDir, ".codex_alt2"), fallbackPlan: "free" }
+  { id: "codex-main", profile: ".codex", home: path.join(homeDir, ".codex"), fallbackPlan: null },
+  { id: "codex-alt", profile: ".codex-alt", home: path.join(homeDir, ".codex_alt"), fallbackPlan: null },
+  { id: "codex-alt2", profile: ".codex-alt2", home: path.join(homeDir, ".codex_alt2"), fallbackPlan: null }
 ];
 const codexAccountSnapshotCache = new Map();
 let accountSnapshotCacheLoaded = false;
@@ -199,7 +200,7 @@ function normalizeCodexAccount(account, response) {
     id: account.id,
     profile: account.profile,
     plan: snapshot?.planType || account.fallbackPlan,
-    planSource: snapshot?.planType ? "providerReported" : "fallback",
+    planSource: snapshot?.planType ? "providerReported" : account.fallbackPlan ? "fallback" : "unreported",
     connected,
     exact: connected,
     rateStale: false,
@@ -1342,6 +1343,7 @@ function contentType(filePath) {
 }
 
 const publicRoot = publicDir.endsWith(path.sep) ? publicDir : `${publicDir}${path.sep}`;
+const publicAssets = new Set(["index.html", "app.js", "styles.css", "dashboard-insights.js", "dashboard-insights.css", "marketing/index.html", "marketing/app.js", "marketing/styles.css", "marketing/assets/pulse-icon.png"]);
 const staticFileCache = new Map();
 const staticFileCacheLimit = 2 * 1024 * 1024;
 
@@ -1392,6 +1394,8 @@ const server = http.createServer(async (request, response) => {
       response.end("Forbidden");
       return;
     }
+    const assetPath = path.relative(publicDir, filePath).split(path.sep).join("/");
+    if (!publicAssets.has(assetPath)) throw notFound();
     const file = await readStaticFile(filePath);
     const headers = { "Content-Type": file.type, "Cache-Control": "no-cache", ETag: file.etag, "Content-Security-Policy": "frame-ancestors 'none'" };
     if (request.headers["if-none-match"] === file.etag) {

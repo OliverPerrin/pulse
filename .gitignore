@@ -3,3 +3,12 @@ node_modules/
 release/
 site-dist/
 .vercel/
+
+# Local credentials, telemetry, and diagnostics
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+coverage/

@@ -28,8 +28,8 @@
         </a>
 
         <button class="workspace-switcher" id="workspace-switcher" type="button" aria-label="Switch workspace" aria-expanded="false" aria-controls="workspace-menu">
-          <span class="workspace-avatar">OP</span>
-          <span class="workspace-copy"><strong>Oliver's local</strong><small>Personal workspace</small></span>
+          <span class="workspace-avatar">ME</span>
+          <span class="workspace-copy"><strong>My workspace</strong><small>Local workspace</small></span>
           <span class="icon" data-icon="chevrons"></span>
         </button>
         <div class="workspace-menu" id="workspace-menu" hidden>
@@ -51,7 +51,7 @@
           <div class="sidebar-status"><span class="status-dot"></span><span><strong>Local sync online</strong><small>Polling every 15 sec</small></span></div>
           <button class="nav-item sidebar-action" id="sidebar-compact-button" type="button" aria-label="Compact view" title="Compact view"><span class="icon" data-icon="panel"></span><span>Compact view</span></button>
           <button class="nav-item sidebar-action" id="settings-button" type="button" aria-label="Settings" title="Settings" aria-controls="settings-panel" aria-expanded="false"><span class="icon" data-icon="settings"></span><span>Settings</span></button>
-          <button class="profile-button" type="button" aria-label="Open profile"><span>OP</span><small>Oliver Perrin</small><b>⌘K</b></button>
+          <button class="profile-button" type="button" aria-label="Open profile"><span>ME</span><small>Local profile</small><b>⌘K</b></button>
         </div>
       </aside>
 
@@ -212,14 +212,14 @@
       <form id="workspace-form">
         <div class="dialog-head"><div><span class="section-label">New local view</span><h2>Create workspace</h2></div><button class="icon-button" id="close-workspace-dialog" type="button" aria-label="Close"><span class="icon" data-icon="x"></span></button></div>
         <label><span>Workspace name</span><input id="workspace-name" name="workspaceName" type="text" maxlength="32" placeholder="e.g. Decidio" required /></label>
-        <label><span>Workspace type</span><select id="workspace-type" name="workspaceType"><option value="Project workspace">Project workspace</option><option value="Team workspace">Team workspace</option><option value="Personal workspace">Personal workspace</option></select></label>
+        <label><span>Workspace type</span><select id="workspace-type" name="workspaceType"><option value="Project workspace">Project workspace</option><option value="Team workspace">Team workspace</option><option value="Local workspace">Local workspace</option></select></label>
         <div class="dialog-actions"><button class="secondary-button" id="cancel-workspace" type="button">Cancel</button><button class="primary-button" type="submit">Create workspace</button></div>
       </form>
     </dialog>
 
     <section class="compact-dashboard" id="compact-dashboard" aria-label="Usage Pulse compact view">
       <div class="compact-shell">
-        <header class="compact-head"><div class="compact-brand"><span class="brand-mark"><img src="/marketing/assets/pulse-icon.png" alt="" /></span><span><strong>PULSE</strong><small id="compact-workspace-name">Oliver's local</small></span></div><div><button class="icon-button" id="compact-sync" type="button" aria-label="Sync now"><span class="icon" data-icon="refresh"></span></button><button class="icon-button" id="exit-compact" type="button" aria-label="Open full dashboard"><span class="icon" data-icon="grid"></span></button></div></header>
+        <header class="compact-head"><div class="compact-brand"><span class="brand-mark"><img src="/marketing/assets/pulse-icon.png" alt="" /></span><span><strong>PULSE</strong><small id="compact-workspace-name">My workspace</small></span></div><div><button class="icon-button" id="compact-sync" type="button" aria-label="Sync now"><span class="icon" data-icon="refresh"></span></button><button class="icon-button" id="exit-compact" type="button" aria-label="Open full dashboard"><span class="icon" data-icon="grid"></span></button></div></header>
         <div class="compact-section"><div class="compact-section-head"><span id="compact-limits-title">Account limits</span><a href="#limits" id="compact-open-limits">Review</a></div><div id="compact-headroom"></div></div>
         <div class="compact-section"><div class="compact-section-head"><span>Alerts</span><button type="button" id="compact-open-alerts">Open all</button></div><div id="compact-alerts"></div></div>
         <details class="compact-usage-details"><summary>Usage summary</summary>

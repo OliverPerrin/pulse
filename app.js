@@ -41,7 +41,7 @@ const providerMeta = {
 };
 
 const defaultSettings = { pollSeconds: 15, notifyCritical: true, notifySync: true, compactDefault: false };
-const defaultWorkspaces = [{ id: 'oliver-local', name: "Oliver's local", type: 'Personal workspace', initials: 'OP' }];
+const defaultWorkspaces = [{ id: 'local', name: 'My workspace', type: 'Local workspace', initials: 'ME' }];
 
 function readStored(key, fallback) {
   try {
@@ -73,7 +73,7 @@ const state = {
   expandedModels: false,
   settings: storedSettings,
   workspaces: Array.isArray(storedWorkspaces) && storedWorkspaces.length ? storedWorkspaces : defaultWorkspaces,
-  activeWorkspaceId: readStored('usage-pulse-active-workspace', 'oliver-local'),
+  activeWorkspaceId: readStored('usage-pulse-active-workspace', 'local'),
   readNotifications: new Set(readStored('usage-pulse-read-notifications', [])),
   compactMode: isDesktopTraySurface ? true : isDesktopAppSurface ? false : storedSettings.compactDefault
 };
@@ -570,7 +570,7 @@ function renderCodexAccounts() {
       const value = windowRemaining(window);
       return `<div class="codex-window ${value === null ? 'unknown' : value < 20 ? 'low' : 'ready'}"><div class="codex-window-top"><span class="codex-window-name">${escapeHtml(window.label || window.tag || 'Current window')}</span><strong class="codex-window-remaining">${value === null ? 'Not reported' : `${displayPercent(value)}% left`}</strong></div><div class="codex-window-track" role="${value === null ? 'img' : 'meter'}" aria-label="${escapeHtml(window.label || 'Current window')} remaining" ${value === null ? '' : `aria-valuenow="${value}" aria-valuemin="0" aria-valuemax="100"`}><span style="--remaining:${value ?? 0}%"></span></div><div class="codex-window-meta"><span>${value === null ? 'Awaiting refresh' : `${100 - displayPercent(value)}% used`}</span><span>${escapeHtml(resetLabel(window.resetsAt))}</span></div>${window.resetsAt ? `<time class="window-exact-reset">${escapeHtml(formatResetDate(window.resetsAt))}</time>` : ''}</div>`;
     }).join('') || '<p class="empty-copy">No current allowance reported.</p>';
-    return `<article class="codex-account-card subscription-card ${tone} ${claude ? 'claude-subscription' : ''}" data-subscription-id="${escapeHtml(account.id || account.profile)}" data-subscription-provider="${account.providerId}"><div class="subscription-top"><div class="codex-account-identity"><span class="account-number">${account.identityTag}</span><span class="codex-account-copy"><strong>${claude ? 'Claude Code' : 'Codex'}</strong>${claude ? '' : `<small>${escapeHtml(account.profile)}</small>`}</span></div><span class="codex-plan-pill" title="${account.planSource === 'providerReported' ? 'Provider-reported subscription' : 'Configured plan'}">${escapeHtml(planLabel(account.plan))}${account.planSource === 'providerReported' ? '' : ' · configured'}</span></div><div class="subscription-hero">${limitRing(remaining, tone)}<div class="allowance-copy"><span class="allowance-state ${tone}"><i></i>${label}</span><strong>${escapeHtml(tightest?.label || tightest?.tag || 'No current window')}</strong></div></div><div class="codex-window-list">${windows}</div><details class="subscription-source-details"><summary>${escapeHtml(source)}</summary>${facts}</details></article>`;
+    return `<article class="codex-account-card subscription-card ${tone} ${claude ? 'claude-subscription' : ''}" data-subscription-id="${escapeHtml(account.id || account.profile)}" data-subscription-provider="${account.providerId}"><div class="subscription-top"><div class="codex-account-identity"><span class="account-number">${account.identityTag}</span><span class="codex-account-copy"><strong>${claude ? 'Claude Code' : 'Codex'}</strong>${claude ? '' : `<small>${escapeHtml(account.profile)}</small>`}</span></div><span class="codex-plan-pill" title="${account.planSource === 'providerReported' ? 'Provider-reported subscription' : account.planSource === 'fallback' ? 'Configured plan' : 'Subscription not reported'}">${escapeHtml(planLabel(account.plan))}${account.planSource === 'fallback' ? ' · configured' : ''}</span></div><div class="subscription-hero">${limitRing(remaining, tone)}<div class="allowance-copy"><span class="allowance-state ${tone}"><i></i>${label}</span><strong>${escapeHtml(tightest?.label || tightest?.tag || 'No current window')}</strong></div></div><div class="codex-window-list">${windows}</div><details class="subscription-source-details"><summary>${escapeHtml(source)}</summary>${facts}</details></article>`;
   }).join('') || '<p class="empty-copy">No subscriptions detected. Sync to check your accounts.</p>';
   for (const card of container.querySelectorAll('[data-subscription-id]')) {
     const detail = card.querySelector('details');
