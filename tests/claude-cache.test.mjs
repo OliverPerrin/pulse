@@ -48,3 +48,14 @@ test('a transient auth-status failure preserves verified allowance and provider 
   const logout=await read({connected:false,authStatusKnown:true,plan:'Not reported',planSource:'unreported'});assert.equal(logout.limits,undefined);
   await read(sub);assert.equal(calls,1);
 });
+
+test('peek returns cached reset evidence without starting a provider probe', async () => {
+  let calls = 0;
+  const snapshot = normalizeClaudeUsage({ ...payload, bankedResets: 2 }, { now: start, subscription: sub });
+  const read = createClaudeUsageMonitor({ load: async () => ({ version: 1, snapshot }), clock: () => start + 1000, collect: async () => { calls++; return {}; } });
+  const cached = await read.peek();
+  assert.equal(cached.bankedResets, 2);
+  assert.equal(cached.fetchedAt, start);
+  assert.equal(cached.stale, true);
+  assert.equal(calls, 0);
+});

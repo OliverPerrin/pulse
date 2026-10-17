@@ -1,4 +1,7 @@
 import http from "node:http";
+import { createProviderRegistry } from "./provider-registry.mjs";
+import { bankedResets } from "./reset-credits.mjs";
+import { createSnapshotReader } from "./snapshot-cache.mjs";
 import { homedir } from "node:os";
 import { execFile, spawn } from "node:child_process";
 import { createReadStream, promises as fs } from "node:fs";
@@ -20,9 +23,9 @@ const commandCodeProjectsPath = path.join(homeDir, ".commandcode", "projects");
 const lifetimeLookbackDays = 3650;
 
 // Both desktop surfaces (main window and menu-bar popover) poll this server
-// independently, so every expensive source is memoised for a little less than
-// one poll interval and concurrent requests share a single in-flight pass.
-const snapshotTtlMs = Number(process.env.PULSE_SNAPSHOT_TTL_MS ?? 4000);
+// independently. Expensive sources share in-flight work; history refreshes
+// in the background while live allowances use their own faster channel.
+const snapshotTtlMs = Number(process.env.PULSE_SNAPSHOT_TTL_MS ?? 15000);
 const codexAccountsTtlMs = Number(process.env.PULSE_CODEX_TTL_MS ?? 10000);
 const openCodeTtlMs = Number(process.env.PULSE_OPENCODE_TTL_MS ?? 60000);
 
@@ -46,11 +49,22 @@ const providerBlueprints = [
   { id: "opencode", name: "OpenCode", shortName: "OpenCode", color: "#64dcc4", cost: 4.78, tokens: 46_200_000, source: "Local stats" }
 ];
 
-const codexAccountBlueprints = [
-  { id: "codex-main", profile: ".codex", home: path.join(homeDir, ".codex"), fallbackPlan: null },
-  { id: "codex-alt", profile: ".codex-alt", home: path.join(homeDir, ".codex_alt"), fallbackPlan: null },
-  { id: "codex-alt2", profile: ".codex-alt2", home: path.join(homeDir, ".codex_alt2"), fallbackPlan: null }
-];
+const registry = createProviderRegistry({ configPath: process.env.PULSE_PROVIDER_CONFIG_PATH });
+let activeProviderConfigs = [];
+let codexAccountBlueprints = [];
+let activeProviderKey = null;
+async function configureProviders(force = false) {
+  const discovered = await registry.discover(force);
+  activeProviderConfigs = discovered.providers.filter(provider => provider.enabled);
+  codexAccountBlueprints = activeProviderConfigs.filter(provider => provider.provider === "codex");
+  const key = JSON.stringify(activeProviderConfigs);
+  if (activeProviderKey !== null && activeProviderKey !== key) {
+    cachedCodexAccounts.clear(); cachedClaudeSubscription.clear(); cachedSnapshot.clear(); cachedOpenCodeStats.clear();
+    allowanceGeneration++; allowanceSnapshot = null; allowanceUpdatedAt = 0;
+  }
+  activeProviderKey = key;
+  return discovered;
+}
 const codexAccountSnapshotCache = new Map();
 let accountSnapshotCacheLoaded = false;
 
@@ -116,7 +130,7 @@ const readSourceJson = createJsonFileReader();
 // in-flight load, and keeps the last good value when a refresh throws.
 function memoizeAsync(ttlMs, loader) {
   const entries = new Map();
-  return (key = "") => {
+  const read = (key = "") => {
     const entry = entries.get(key);
     if (entry?.inFlight) return entry.inFlight;
     if (entry && Date.now() - entry.at < ttlMs) return Promise.resolve(entry.value);
@@ -131,6 +145,8 @@ function memoizeAsync(ttlMs, loader) {
     entries.set(key, { at: entry?.at ?? 0, value: entry?.value, inFlight });
     return inFlight;
   };
+  read.clear = () => { for (const [key, entry] of entries) if (!entry.inFlight) entries.delete(key); };
+  return read;
 }
 
 function clamp(value, min, max) {
@@ -150,9 +166,9 @@ function parseCompact(value) {
   return Number(match[1]) * multiplier;
 }
 
-function runCommand(command, args, timeout = 5500) {
+function runCommand(command, args, timeout = 5500, env = process.env) {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout, maxBuffer: 1024 * 1024 }, (error, stdout = "") => {
+    execFile(command, args, { timeout, env, cwd: homeDir, maxBuffer: 1024 * 1024 }, (error, stdout = "") => {
       resolve(error ? "" : stdout);
     });
   });
@@ -191,11 +207,11 @@ function normalizeCodexAccount(account, response) {
   const buckets = rateResponse?.rateLimitsByLimitId || {};
   const snapshot = buckets.codex || rateResponse?.rateLimits || null;
   const windows = [rateLimitWindow(snapshot?.primary), rateLimitWindow(snapshot?.secondary)].filter(Boolean);
-  const connected = Boolean(snapshot);
+  const bankedResetsValue = bankedResets(rateResponse) ?? bankedResets(snapshot) ?? bankedResets(snapshot?.credits);
+  const connected = Boolean(snapshot) || bankedResetsValue !== null;
   const lifetimeTokens = Number(usageResponse?.summary?.lifetimeTokens) || 0;
   const usageExact = Boolean(usageResponse && Array.isArray(usageResponse.dailyUsageBuckets) && (usageResponse.dailyUsageBuckets.length > 0 || lifetimeTokens === 0));
   const fetchedAt = Date.now();
-  const bankedResetsValue = snapshot?.bankedResets ?? snapshot?.credits?.bankedResets ?? null;
   return {
     id: account.id,
     profile: account.profile,
@@ -276,7 +292,7 @@ function stabilizeCodexAccount(account) {
 
 function readCodexRateLimits(account) {
   return new Promise((resolve) => {
-    const codexCommand = process.env.CODEX_BIN || "codex";
+    const codexCommand = account.command || process.env.CODEX_BIN || "codex";
     let child;
     try {
       child = spawn(codexCommand, ["app-server", "--listen", "stdio://"], {
@@ -337,7 +353,7 @@ function readCodexRateLimits(account) {
 
 async function readCodexAccounts() {
   await ensureAccountSnapshotCache();
-  const accounts = await Promise.all(codexAccountBlueprints.map(readCodexRateLimits));
+  const accounts = await Promise.all(codexAccountBlueprints.map(account => account.configExists === false ? normalizeCodexAccount(account, null) : readCodexRateLimits(account)));
   const stabilized = accounts.map(stabilizeCodexAccount);
   await persistAccountSnapshotCache();
   return stabilized;
@@ -524,8 +540,8 @@ async function recentCodexSessionFiles(minimumMtimeMs) {
 }
 
 async function recentClaudeTranscriptFiles(minimumMtimeMs) {
-  const root = await fs.realpath(path.join(homeDir, ".claude", "projects")).catch(() => null);
-  return root ? walkRecentFiles(root, minimumMtimeMs) : [];
+  const roots = await Promise.all(activeProviderConfigs.filter(item => item.provider === "claude").map(item => fs.realpath(path.join(item.home, "projects")).catch(() => null)));
+  return [...new Set((await Promise.all([...new Set(roots.filter(Boolean))].map(root => walkRecentFiles(root, minimumMtimeMs)))).flat())];
 }
 
 function latestCachedUsageTimestamps(cache) {
@@ -710,8 +726,10 @@ function normalizeClaudeSubscription(status) {
   };
 }
 
-async function readClaudeSubscription() {
-  const output = await runCommand(process.env.CLAUDE_BIN || "claude", ["auth", "status", "--json"]);
+async function readClaudeSubscription(id) {
+  const account = activeProviderConfigs.find(item => item.id === id);
+  if (!account || account.configExists === false) return normalizeClaudeSubscription({ loggedIn: false });
+  const output = await runCommand(account.command, ["auth", "status", "--json"], 5500, { ...process.env, CLAUDE_CONFIG_DIR: account.home });
   try { return normalizeClaudeSubscription(JSON.parse(output)); }
   catch { return normalizeClaudeSubscription(null); }
 }
@@ -1144,29 +1162,80 @@ function includeAllCodexAccountUsage(cacheData, codexUsage) {
 
 const cachedCodexAccounts = memoizeAsync(codexAccountsTtlMs, () => readCodexAccounts());
 const cachedClaudeSubscription = memoizeAsync(60000, readClaudeSubscription);
-const currentClaudeUsage = createClaudeUsageMonitor({
-  collect: () => readClaudeUsage({ command: process.env.CLAUDE_BIN || "claude", cwd: homeDir }),
-  load: () => readJson(claudeUsageCachePath),
-  save: async (snapshot) => {
-    await fs.mkdir(path.dirname(claudeUsageCachePath), { recursive: true });
-    const temporary = `${claudeUsageCachePath}.${process.pid}.${Date.now()}.tmp`;
-    await fs.writeFile(temporary, JSON.stringify(snapshot), { mode: 0o600 });
-    await fs.rename(temporary, claudeUsageCachePath);
+const claudeUsageMonitors = new Map();
+function claudeUsageMonitor(account) {
+  const key = `${account.id}:${account.command}`;
+  if (!claudeUsageMonitors.has(key)) {
+    const cachePath = account.home === path.join(homeDir, ".claude") ? claudeUsageCachePath : claudeUsageCachePath.replace(/\.json$/, `-${account.id}.json`);
+    claudeUsageMonitors.set(key, createClaudeUsageMonitor({
+      collect: () => readClaudeUsage({ command: account.command, cwd: homeDir, env: { ...process.env, CLAUDE_CONFIG_DIR: account.home } }),
+      load: () => readJson(cachePath),
+      save: async snapshot => {
+        await fs.mkdir(path.dirname(cachePath), { recursive: true });
+        const temporary = `${cachePath}.${process.pid}.tmp`;
+        await fs.writeFile(temporary, JSON.stringify(snapshot), { mode: 0o600 });
+        await fs.rename(temporary, cachePath);
+      }
+    }));
   }
+  return claudeUsageMonitors.get(key);
+}
+async function readClaudeAccounts() {
+  return Promise.all(activeProviderConfigs.filter(item => item.provider === "claude").map(async account => {
+    const subscription = await cachedClaudeSubscription(account.id);
+    return { ...await claudeUsageMonitor(account)(subscription), id: account.id, profile: account.name };
+  }));
+}
+let allowanceSnapshot = null, allowanceFlight = null, allowanceUpdatedAt = 0, allowanceGeneration = 0;
+async function refreshAllowances(force = false) {
+  if (allowanceFlight) { const result = await allowanceFlight; return result || refreshAllowances(true); }
+  if (!force && Date.now() - allowanceUpdatedAt < 5000 && allowanceSnapshot) return allowanceSnapshot;
+  allowanceFlight = (async () => {
+    await configureProviders();
+    const generation = allowanceGeneration;
+    if (force) cachedCodexAccounts.clear();
+    const [codexAccounts, claudeAccounts] = await Promise.all([cachedCodexAccounts(), readClaudeAccounts()]);
+    if (generation !== allowanceGeneration) return null;
+    allowanceUpdatedAt = Date.now();
+    allowanceSnapshot = { codexAccounts, claudeAccounts, limits: { claude: claudeAccounts[0] || normalizeClaudeSubscription({ loggedIn: false }) }, fetchedAt: allowanceUpdatedAt };
+    return allowanceSnapshot;
+  })();
+  let result;
+  try { result = await allowanceFlight; } finally { allowanceFlight = null; }
+  return result || refreshAllowances(true);
+}
+async function getAllowances(force = false) {
+  await configureProviders();
+  if (!allowanceSnapshot) {
+    await ensureAccountSnapshotCache();
+    const claudeAccounts = await Promise.all(activeProviderConfigs.filter(item => item.provider === "claude").map(async account => ({ ...await claudeUsageMonitor(account).peek(), id: account.id, profile: account.name })));
+    allowanceSnapshot = { codexAccounts: codexAccountBlueprints.map(account => stabilizeCodexAccount(normalizeCodexAccount(account, null))), claudeAccounts, limits: { claude: claudeAccounts[0] || normalizeClaudeSubscription({ loggedIn: false }) }, fetchedAt: null };
+  }
+  void refreshAllowances(force).catch(() => {});
+  return { ...allowanceSnapshot, refreshing: Boolean(allowanceFlight) };
+}
+const cachedOpenCodeStats = memoizeAsync(openCodeTtlMs, async days => {
+  const config = activeProviderConfigs.find(item => item.provider === "opencode");
+  if (!config) return "";
+  const configFile = await fs.stat(path.join(config.home, "opencode.json")).catch(() => null) ? "opencode.json" : "opencode.jsonc";
+  return runCommand(config.command, ["stats", "--days", days], 5500, { ...process.env, OPENCODE_CONFIG: path.join(config.home, configFile) });
 });
-const cachedOpenCodeStats = memoizeAsync(openCodeTtlMs, (days) => runCommand("opencode", ["stats", "--days", days]));
 
 async function buildSnapshot(days) {
+  const startedAt = Date.now();
+  await configureProviders();
   const lifetime = days === "lifetime";
   const requestedDays = lifetime ? lifetimeLookbackDays : Number(days);
-  const [cache, ratesCache, commandCodeData, openCodeText, rawCodexAccounts, claudeSubscription] = await Promise.all([
+  const [cache, ratesCache, commandCodeData, openCodeText, allowances] = await Promise.all([
     readSourceJson(usageCachePath),
     readSourceJson(usageRatesPath),
     aggregateCommandCode(requestedDays),
     cachedOpenCodeStats(String(requestedDays)),
-    cachedCodexAccounts(),
-    cachedClaudeSubscription()
+    refreshAllowances()
   ]);
+  const rawCodexAccounts = allowances.codexAccounts;
+  const claudeAccounts = allowances.claudeAccounts;
+  const claudeSubscription = claudeAccounts[0] || normalizeClaudeSubscription({ loggedIn: false });
   const safeDays = lifetime ? availableHistoryDays(cache, rawCodexAccounts, commandCodeData.earliestTimestamp) : requestedDays;
   const rates = parseRateTable(ratesCache?.document);
   const cacheData = aggregateLocalCache(cache, safeDays, rates);
@@ -1174,11 +1243,12 @@ async function buildSnapshot(days) {
   const [liveCodexUsage, liveClaudeUsage, providerClaudeLimits] = await Promise.all([
     augmentWithRecentCodexSessions(cacheData, safeDays, rates, cachedThrough.codex),
     augmentWithRecentClaudeSessions(cacheData, safeDays, rates, cachedThrough.claude),
-    currentClaudeUsage(claudeSubscription)
+    Promise.resolve(claudeSubscription)
   ]);
   const transcriptClaudeLimits = claudeLimitsFromQuota(liveClaudeUsage.quota, claudeSubscription);
-  const claudeLimits = providerClaudeLimits.limits?.some(window => window.reported) || !transcriptClaudeLimits.limits?.length
+  const claudeLimits = providerClaudeLimits.limits?.some(window => window.reported) || providerClaudeLimits.bankedResets != null || !transcriptClaudeLimits.limits?.length
     ? providerClaudeLimits : transcriptClaudeLimits;
+  if (claudeAccounts.length && claudeLimits !== providerClaudeLimits) claudeAccounts[0] = { ...claudeAccounts[0], ...claudeLimits };
   const codexUsage = aggregateCodexUsage(rawCodexAccounts, safeDays, lifetime);
   const codexCoverage = includeAllCodexAccountUsage(cacheData, codexUsage);
   const openCodeStats = parseOpenCodeStats(openCodeText);
@@ -1241,8 +1311,10 @@ async function buildSnapshot(days) {
   const cachedProviders = new Set(Object.values(cache?.files || {}).map((file) => file?.p));
   codex.accounts = rawCodexAccounts.filter((account) => account.connected).length;
   codex.status = codex.accounts > 0 || cachedProviders.has("codex") || liveCodexUsage.records > 0 ? "detected" : "unavailable";
-  claude.status = claudeSubscription.connected || cachedProviders.has("claude") || liveClaudeUsage.records > 0 ? "detected" : "unavailable";
+  claude.accounts = claudeAccounts.filter(account => account.connected).length;
+  claude.status = claude.accounts > 0 || cachedProviders.has("claude") || liveClaudeUsage.records > 0 ? "detected" : "unavailable";
   commandcode.status = commandCodeData.detected ? "detected" : "unavailable";
+  cursor.status = activeProviderConfigs.some(item => item.provider === "cursor") ? "detected" : "unavailable";
   opencode.status = openCodeStats ? "detected" : "unavailable";
   codex.sessions = cachedProviders.has("codex") || liveCodexUsage.records > 0 ? cacheData.aggregate.codex.sessions : null;
   claude.sessions = cachedProviders.has("claude") || liveClaudeUsage.records > 0 ? cacheData.aggregate.claude.sessions : null;
@@ -1290,6 +1362,9 @@ async function buildSnapshot(days) {
   const estimatedUncachedValueAvoided = measured.reduce((sum, value) => sum + value.cacheSavings, 0);
   return {
     fetchedAt: Date.now(),
+    syncDurationMs: Date.now() - startedAt,
+    allowanceFetchedAt: allowances.fetchedAt,
+    claudeAccounts,
     rangeDays: safeDays,
     rangeKey: lifetime ? "lifetime" : String(safeDays),
     mode: cache ? "local adapters + account usage + session cache" : "local adapters + preview data",
@@ -1331,7 +1406,7 @@ function snapshotCacheKey(days) {
   return String(days).toLowerCase() === "lifetime" ? "lifetime" : String(clamp(Number(days) || 30, 7, 90));
 }
 
-const cachedSnapshot = memoizeAsync(snapshotTtlMs, buildSnapshot);
+const cachedSnapshot = createSnapshotReader({ ttlMs: snapshotTtlMs, load: buildSnapshot });
 
 function getSnapshot(days) {
   return cachedSnapshot(snapshotCacheKey(days));
@@ -1343,7 +1418,7 @@ function contentType(filePath) {
 }
 
 const publicRoot = publicDir.endsWith(path.sep) ? publicDir : `${publicDir}${path.sep}`;
-const publicAssets = new Set(["index.html", "app.js", "styles.css", "dashboard-insights.js", "dashboard-insights.css", "marketing/index.html", "marketing/app.js", "marketing/styles.css", "marketing/assets/pulse-icon.png"]);
+const publicAssets = new Set(["index.html", "app.js", "styles.css", "dashboard-insights.js", "dashboard-insights.css", "app-theme.css", "marketing/index.html", "marketing/app.js", "marketing/styles.css", "marketing/assets/pulse-icon.png"]);
 const staticFileCache = new Map();
 const staticFileCacheLimit = 2 * 1024 * 1024;
 
@@ -1370,12 +1445,34 @@ async function readStaticFile(filePath) {
 
 const server = http.createServer(async (request, response) => {
   try {
+    const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+    if (url.pathname === "/api/providers" && request.method === "POST") {
+      // A website cannot change local executables via a cross-origin request.
+      const origin = request.headers.origin;
+      if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || request.headers['content-type'] !== 'application/json' || (origin && origin !== `http://${request.headers.host}`) || request.headers['sec-fetch-site'] === 'cross-site') {
+        response.writeHead(403); response.end("Forbidden"); return;
+      }
+      let body = "";
+      try {
+        for await (const chunk of request) { body += chunk; if (body.length > 16384) throw new Error("Provider settings are too large."); }
+        const result = await registry.update(JSON.parse(body));
+        await configureProviders();
+        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); response.end(JSON.stringify(result));
+      } catch (error) {
+        response.writeHead(400, { "Content-Type": "application/json" }); response.end(JSON.stringify({ error: error instanceof SyntaxError ? "Invalid provider settings." : error.code ? "Could not save provider settings on this Mac." : error.message }));
+      }
+      return;
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       response.writeHead(405, { Allow: "GET, HEAD", "Content-Type": "text/plain; charset=utf-8" });
       response.end("Method not allowed");
       return;
     }
-    const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+    if (url.pathname === "/api/providers" || url.pathname === "/api/allowances") {
+      const payload = url.pathname === "/api/providers" ? await configureProviders(url.searchParams.has("scan")) : await getAllowances(url.searchParams.has("force"));
+      response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      response.end(request.method === "HEAD" ? undefined : JSON.stringify(payload)); return;
+    }
     if (url.pathname === "/api/usage") {
       const payload = await getSnapshot(url.searchParams.get("days"));
       const body = Buffer.from(JSON.stringify(payload));

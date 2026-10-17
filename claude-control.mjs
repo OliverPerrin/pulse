@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { bankedResets } from './reset-credits.mjs';
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const INIT_ID = 'pulse-usage-initialize';
@@ -18,8 +19,18 @@ function sanitizeUsage(response) {
     if (reset !== null && (typeof reset !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(reset) || !Number.isFinite(Date.parse(reset)))) continue;
     rate_limits[key] = { utilization, resets_at: reset };
   }
-  if (!Object.keys(rate_limits).length) return null;
+  // New CLI versions also expose provider-owned meter rows.
+  if (Array.isArray(response.rate_limits?.limits)) {
+    rate_limits.limits = response.rate_limits.limits.slice(0, 40).filter(row =>
+      row && typeof row.kind === 'string' && typeof row.percent === 'number' && Number.isFinite(row.percent) && row.percent >= 0 && row.percent <= 100
+      && (row.resets_at === null || typeof row.resets_at === 'string' && Number.isFinite(Date.parse(row.resets_at)))
+    ).map(row => ({ kind: row.kind.slice(0, 64), percent: row.percent, resets_at: row.resets_at,
+      ...(typeof row.scope?.model?.display_name === 'string' ? { model: row.scope.model.display_name.slice(0, 80) } : {}) }));
+  }
+  const resets = bankedResets(response) ?? bankedResets(response.rate_limits);
+  if (!Object.keys(rate_limits).length && resets === null) return null;
   const result = { rate_limits };
+  if (resets !== null) result.bankedResets = resets;
   if (['free', 'pro', 'max', 'team', 'enterprise'].includes(response.subscription_type)) result.subscription_type = response.subscription_type;
   return result;
 }
@@ -28,7 +39,7 @@ function sanitizeUsage(response) {
  * The experimental control protocol can change. Fail closed to an unavailable
  * result and retain only allowlisted quota fields and diagnostic reason codes.
  */
-export function readClaudeUsage({ command = process.env.CLAUDE_BIN || 'claude', cwd = tmpdir(), timeoutMs = 20_000, spawnImpl = spawn } = {}) {
+export function readClaudeUsage({ command = process.env.CLAUDE_BIN || 'claude', cwd = tmpdir(), env = process.env, timeoutMs = 20_000, spawnImpl = spawn } = {}) {
   return new Promise((resolve) => {
     let child;
     let completed = false;
@@ -110,7 +121,7 @@ export function readClaudeUsage({ command = process.env.CLAUDE_BIN || 'claude', 
         '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence',
         '--input-format', 'stream-json', '--output-format', 'stream-json',
         '--verbose', '--debug-to-stderr', '-p'
-      ], { cwd, detached, stdio: ['pipe', 'pipe', 'pipe'] });
+      ], { cwd, env, detached, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch { finish(); return; }
 
     const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 20_000;

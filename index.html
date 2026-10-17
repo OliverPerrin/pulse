@@ -12,6 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/dashboard-insights.css" />
+    <link rel="stylesheet" href="/app-theme.css" />
   </head>
   <body>
     <div class="boot-screen" id="boot-screen" aria-hidden="true">
@@ -39,12 +40,13 @@
         </div>
 
         <nav class="nav-list">
-          <a class="nav-item active" href="#limits" aria-label="Subscriptions" title="Subscriptions"><span class="icon" data-icon="shield"></span><span>Subscriptions</span></a>
+          <a class="nav-item active" href="#limits" aria-label="Current allowance" title="Current allowance"><span class="icon" data-icon="shield"></span><span>Current allowance</span></a>
+          <a class="nav-item" href="#attention" aria-label="Alerts and balances" title="Alerts and balances"><span class="icon" data-icon="alert"></span><span>Alerts and balances</span><em id="nav-alert-count">00</em></a>
           <a class="nav-item" href="#usage" aria-label="Usage history" title="Usage history"><span class="icon" data-icon="bar-chart"></span><span>Usage history</span></a>
-          <a class="nav-item" href="#breakdown" aria-label="Models" title="Models"><span class="icon" data-icon="layers"></span><span>Models</span></a>
+          <a class="nav-item" href="#usage-insights" aria-label="Usage patterns" title="Usage patterns"><span class="icon" data-icon="trend-up"></span><span>Usage patterns</span></a>
           <a class="nav-item" href="#accounts" aria-label="Local sources" title="Local sources"><span class="icon" data-icon="grid"></span><span>Local sources</span></a>
-          <a class="nav-item" href="#activity-log" aria-label="Activity" title="Activity"><span class="icon" data-icon="activity"></span><span>Activity</span></a>
-          <a class="nav-item" href="#attention" aria-label="Alerts" title="Alerts"><span class="icon" data-icon="alert"></span><span>Alerts</span><em id="nav-alert-count">00</em></a>
+          <a class="nav-item" href="#breakdown" aria-label="Models" title="Models"><span class="icon" data-icon="layers"></span><span>Models</span></a>
+          <a class="nav-item" href="#activity-log" aria-label="Recent activity" title="Recent activity"><span class="icon" data-icon="activity"></span><span>Recent activity</span></a>
         </nav>
 
         <div class="sidebar-bottom">
@@ -69,10 +71,11 @@
         <div class="page-wrap">
           <section class="page-heading" id="overview">
             <div>
-              <h1>Your subscriptions</h1>
-              <p>Current allowance and reset times across your coding accounts.</p>
+              <h1>Your coding capacity</h1>
+              <p>Your coding accounts, remaining capacity, and the next reset. All in one place.</p>
             </div>
             <div class="heading-actions">
+              <button class="secondary-button" id="provider-setup-button" type="button"><span class="icon" data-icon="plus"></span>Providers</button>
               <button class="sync-button" id="sync-button" type="button"><span class="icon" data-icon="refresh"></span><span>Sync all</span></button>
             </div>
           </section>
@@ -85,6 +88,7 @@
 
           <section class="section-block limits-section" id="limits">
             <div class="section-heading-row"><div><h2>Current allowance</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Windows refresh with each sync</span><button class="text-button" type="button" id="limit-help">About limits</button></div></div>
+            <div class="capacity-summary" id="capacity-summary" aria-live="polite"></div>
             <div class="codex-accounts-grid" id="codex-accounts-grid"></div>
             <details class="other-limits"><summary>Other local tools <span>Plans and allowance availability</span><span class="icon" data-icon="chevron-down"></span></summary><div class="limits-grid" id="limits-grid"></div></details>
             <details class="reset-details"><summary>All upcoming resets <span id="account-limit-summary"></span></summary><div class="limit-overview" id="limit-overview"></div></details>
@@ -156,7 +160,7 @@
 
           <details class="dashboard-details sources-disclosure"><summary>Local sources and sync</summary>
           <section class="section-block" id="accounts">
-            <div class="section-heading-row"><div><h2>Local sources</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Local adapter status</span><button class="text-button" type="button" id="manage-accounts">Review limits <span class="icon" data-icon="arrow-up-right"></span></button></div></div>
+            <div class="section-heading-row"><div><h2>Local sources</h2></div><div class="section-heading-actions"><span class="muted-small"><span class="status-dot"></span> Local adapter status</span><button class="text-button" type="button" id="manage-accounts">Manage providers <span class="icon" data-icon="plus"></span></button></div></div>
             <div class="account-grid" id="account-grid"></div>
           </section>
 
@@ -198,7 +202,7 @@
     <aside class="side-panel settings-panel" id="settings-panel" aria-labelledby="settings-title" hidden>
       <div class="panel-head"><div><span class="section-label">Dashboard preferences</span><h2 id="settings-title">Settings</h2></div><button class="icon-button panel-close" type="button" data-close-panel aria-label="Close settings"><span class="icon" data-icon="x"></span></button></div>
       <form class="settings-form" id="settings-form">
-        <label class="setting-row"><span><strong>Live polling interval</strong><small>How often local adapters refresh.</small></span><select id="poll-interval"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option></select></label>
+        <label class="setting-row"><span><strong>Live polling interval</strong><small>How often local adapters refresh.</small></span><select id="poll-interval"><option value="5">5 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option></select></label>
         <label class="setting-row"><span><strong>Critical headroom alerts</strong><small>Notify when a usage window falls below 20%.</small></span><input id="notify-critical" type="checkbox" /></label>
         <label class="setting-row"><span><strong>Sync notifications</strong><small>Show informational adapter events.</small></span><input id="notify-sync" type="checkbox" /></label>
         <label class="setting-row"><span><strong>Compact view by default</strong><small>Open the menu-bar-style summary on launch.</small></span><input id="compact-default" type="checkbox" /></label>
@@ -207,6 +211,24 @@
       <div class="definition-card" id="limit-definitions"><span class="section-label">Reading your subscription limits</span><dl><div><dt>Remaining allowance</dt><dd>Each gauge shows the lowest known window for that account. A weekly allowance and a short usage window are separate constraints; one exhausted window can block use.</dd></div><div><dt>Reset times</dt><dd>Times use your device’s time zone. A passed reset waits for a fresh provider report before showing new headroom.</dd></div><div><dt>Current, cached, or unknown</dt><dd>Provider-reported limits are current snapshots. Cached limits retain their timestamp. Missing values stay unreported, so an unknown allowance is never shown as 100% available.</dd></div><div><dt>Plans and credits</dt><dd>Plan names are reported by the provider, or labelled configured. Credit balances are separate from subscription allowances. Actual subscription fees are not available from these local sources.</dd></div></dl></div>
       <div class="definition-card" id="value-definitions"><span class="section-label">Value definitions</span><dl><div><dt>API-equivalent value</dt><dd>Estimated token value at dashboard reference API rates. It is not an invoice.</dd></div><div><dt>Subscription spend</dt><dd>Recurring plan fees actually paid. Not inferred or included in this dashboard.</dd></div><div><dt>Modeled cache value avoided</dt><dd>Estimated uncached API value avoided by cache reads; not cash saved on a subscription.</dd></div><div><dt>Usage credits available</dt><dd>Remaining balance reported directly by the provider.</dd></div></dl></div>
     </aside>
+
+    <dialog class="provider-dialog" id="provider-dialog" aria-labelledby="provider-dialog-title">
+      <header class="provider-dialog-head"><div class="provider-dialog-brand"><span class="brand-mark"><img src="/marketing/assets/pulse-icon.png" alt="" /></span><span>Make yourself at home</span></div><button class="icon-button" id="close-provider-dialog" type="button" aria-label="Close provider setup"><span class="icon" data-icon="x"></span></button></header>
+      <h2 id="provider-dialog-title">Your tools. All in one place.</h2>
+      <p class="provider-intro">Pulse looks for local CLI profiles, terminal settings, and providers configured in T3 Code. Your existing sign-ins stay with your tools.</p>
+      <div class="provider-discovery-heading"><h3>Found on this Mac</h3><button class="text-button" id="rescan-providers" type="button"><span class="icon" data-icon="refresh"></span>Scan again</button></div>
+      <div id="discovered-providers" class="discovered-providers" aria-live="polite"><p class="empty-copy">Looking for your providers…</p></div>
+      <details class="add-provider-details" id="add-provider-details"><summary><span class="icon" data-icon="plus"></span>Add a provider manually</summary>
+        <form id="provider-form" class="provider-form">
+          <div class="provider-form-pair"><label>Provider<select id="provider-kind" name="provider"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="opencode">OpenCode</option></select></label><label>Display name<input id="provider-name" name="name" maxlength="64" placeholder="e.g. Work account" required /></label></div>
+          <label>Configuration folder<input id="provider-home" name="home" placeholder="~/.codex-work" required spellcheck="false" autocomplete="off" /><small id="provider-home-help">The CLI home containing your existing configuration and sign-in.</small></label>
+          <label>Executable<input id="provider-command" name="command" placeholder="codex" spellcheck="false" autocomplete="off" /><small>Leave blank to use the standard CLI. Custom paths are supported.</small></label>
+          <button class="secondary-button" id="save-provider" type="submit">Add provider</button>
+        </form>
+      </details>
+      <p class="provider-error" id="provider-error" role="alert" hidden></p>
+      <footer class="provider-dialog-footer"><span><span class="icon" data-icon="shield"></span>Stored on this Mac</span><button class="primary-button" id="finish-provider-setup" type="button">Open dashboard<span class="icon" data-icon="arrow-right"></span></button></footer>
+    </dialog>
 
     <dialog class="workspace-dialog" id="workspace-dialog">
       <form id="workspace-form">

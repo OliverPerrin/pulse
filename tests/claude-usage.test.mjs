@@ -87,7 +87,7 @@ test('Claude snapshot is an allowlist and never forwards credentials or account 
   assert.ok(!JSON.stringify(result).includes(secret));
   assert.equal(result.limits.length, 1);
   assert.equal(result.connected, true);
-  assert.deepEqual(Object.keys(result).sort(), ['connected', 'fetchedAt', 'limits', 'note', 'plan', 'planSource', 'source', 'stale', 'status', 'subscriptionFetchedAt', 'unreported']);
+  assert.deepEqual(Object.keys(result).sort(), ['bankedResets', 'connected', 'fetchedAt', 'limits', 'note', 'plan', 'planSource', 'source', 'stale', 'status', 'subscriptionFetchedAt', 'unreported']);
   for (const unsafeSubscription of [null, { ...subscription, connected: false }, { ...subscription, plan: secret }, { ...subscription, planSource: 'configured' }]) {
     const sanitized = normalizeClaudeUsage({}, { subscription: unsafeSubscription, now });
     assert.equal(sanitized.plan, 'Not reported');

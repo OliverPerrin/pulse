@@ -40,7 +40,7 @@ const providerMeta = {
   opencode: { name: 'OpenCode', short: 'OC', color: '#64dcc4', glyph: '↗' }
 };
 
-const defaultSettings = { pollSeconds: 15, notifyCritical: true, notifySync: true, compactDefault: false };
+const defaultSettings = { pollSeconds: 5, notifyCritical: true, notifySync: true, compactDefault: false };
 const defaultWorkspaces = [{ id: 'local', name: 'My workspace', type: 'Local workspace', initials: 'ME' }];
 
 function readStored(key, fallback) {
@@ -267,26 +267,32 @@ function workspaceInitials(name) {
 }
 
 function currentHeadroom() {
-  const accountWindows = currentCodexAccounts().flatMap((account) => (account.windows || []).map((window) => ({
-    id: `${account.id}-${window.tag}`,
-    provider: account.profile,
-    label: window.label,
-    remaining: windowRemaining(window),
-    reset: resetLabel(window.resetsAt),
-    target: '#limits'
+  const accountWindows = currentSubscriptions().flatMap(account => (account.windows || []).map(window => ({
+    id: `${account.id}-${window.tag}`, provider: account.profile, label: window.label,
+    remaining: windowRemaining(window), reset: resetLabel(window.resetsAt), target: '#limits'
   })));
-  const otherWindows = currentLimitProviders().filter((provider) => provider.id !== 'codex').flatMap((provider) => {
+  const otherWindows = currentLimitProviders().filter(provider => !['codex', 'claude'].includes(provider.id)).flatMap(provider => {
     const meta = providerLimits(provider.id);
-    return (meta?.limits || []).map((window) => ({
-      id: `${provider.id}-${window.tag}`,
-      provider: provider.shortName,
-      label: window.label,
-      remaining: windowRemaining(window, 'remaining'),
-      reset: window.resetsAt ? resetLabel(window.resetsAt) : window.reset,
-      target: '#limits'
-    }));
+    return (meta?.limits || []).map(window => ({ id: `${provider.id}-${window.tag}`, provider: provider.shortName,
+      label: window.label, remaining: windowRemaining(window, 'remaining'), reset: window.resetsAt ? resetLabel(window.resetsAt) : window.reset, target: '#limits' }));
   });
-  return [...accountWindows, ...otherWindows].filter((window) => window.remaining !== null).sort((a, b) => a.remaining - b.remaining);
+  return [...accountWindows, ...otherWindows].filter(window => window.remaining !== null).sort((a, b) => a.remaining - b.remaining);
+}
+
+function currentClaudeAccounts() {
+  if (Array.isArray(state.snapshot.claudeAccounts)) return state.snapshot.claudeAccounts;
+  const account = state.snapshot.limits?.claude;
+  return account ? [{ ...account, id: 'claude-subscription', profile: 'Claude Code' }] : [];
+}
+
+function reportedResetCount(value) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function bankedResetBadge(account, compact = false) {
+  const count = reportedResetCount(account.bankedResets);
+  if (count === null) return '';
+  return `<span class="banked-reset-badge ${count > 0 ? 'has-resets' : ''} ${compact ? 'compact-banked' : ''}" title="${account.rateStale || account.stale ? 'Cached provider-reported reset balance' : 'Provider-reported reset balance'}"><span class="icon">${icon('refresh')}</span><strong>${count}</strong> banked reset${count === 1 ? '' : 's'}${account.rateStale || account.stale ? ' · cached' : ''}</span>`;
 }
 
 function currentAccountLimits() {
@@ -296,6 +302,7 @@ function currentAccountLimits() {
     identityTag: `C${index + 1}`,
     profile: account.profile || `Codex ${index + 1}`,
     plan: planLabel(account.plan),
+    bankedResets: account.bankedResets, rateStale: account.rateStale,
     windows: (account.windows || []).map((window) => {
       const remaining = windowRemaining(window);
       return {
@@ -307,11 +314,12 @@ function currentAccountLimits() {
       };
     })
   }));
-  const claude = state.snapshot.limits?.claude;
-  if (claude && (claude.connected || claude.limits?.length || claude.planSource === 'providerReported')) {
+  for (const claude of currentClaudeAccounts()) {
+    if (!(claude.connected || claude.limits?.length || claude.planSource === 'providerReported')) continue;
     accounts.push({
-      id: 'claude-subscription', providerId: 'claude', identityTag: 'Claude',
-      profile: 'Claude', plan: claude.plan || 'Not reported',
+      id: claude.id || 'claude-subscription', providerId: 'claude', identityTag: 'Claude',
+      profile: claude.profile === 'Claude Code' ? 'Claude' : claude.profile || 'Claude', plan: claude.plan || 'Not reported',
+      bankedResets: claude.bankedResets, stale: claude.stale,
       windows: (claude.limits || []).map((window) => {
         const remaining = windowRemaining(window, 'remaining');
         return {
@@ -328,7 +336,7 @@ function currentAccountLimits() {
 function creditSummary() {
   const accounts = currentCodexAccounts();
   const usageCredits = accounts.reduce((sum, account) => sum + (account.credits?.hasCredits ? Math.max(0, Number(account.credits.balance) || 0) : 0), 0);
-  const reportedBankedResets = accounts.map((account) => account.bankedResets).filter((value) => value !== null && value !== undefined && Number.isFinite(Number(value)));
+  const reportedBankedResets = [...accounts, ...currentClaudeAccounts()].map((account) => account.bankedResets).filter((value) => value !== null && value !== undefined && Number.isFinite(Number(value)));
   return {
     usageCredits,
     bankedResets: reportedBankedResets.length ? reportedBankedResets.reduce((sum, value) => sum + Number(value), 0) : null
@@ -534,23 +542,35 @@ function renderCommandMetrics() {
   document.querySelector('#limit-overview').innerHTML = `<div class="availability-summary"><span class="availability-chip ready"><i></i><strong>${ready}</strong> with headroom</span><span class="availability-chip depleted"><i></i><strong>${depleted}</strong> at limit</span>${unknown ? `<span class="availability-chip unknown"><i></i><strong>${unknown}</strong> to check</span>` : ''}<span class="limits-live-note">Current allowances · independent of date range</span></div>${resets.length ? `<div class="reset-timeline"><span class="reset-timeline-label"><span class="icon">${icon('clock')}</span> Upcoming resets</span>${resets.slice(0, 3).map((window, index) => `<div class="reset-event"><i>${String(index + 1).padStart(2, '0')}</i><span><strong>${escapeHtml(window.profile)} <b>${escapeHtml(window.tag)}</b></strong><small>${escapeHtml(formatResetDate(window.resetsAt))}</small></span></div>`).join('')}</div>` : '<div class="reset-timeline empty-copy">Reset times appear when reported by an account.</div>'}`;
   document.querySelector('#account-limit-summary').textContent = `${accounts.length} subscriptions`;
   document.querySelector('#codex-count').textContent = currentCodexAccounts().length;
-  document.querySelector('#connection-title').textContent = state.syncError ? 'Sync unavailable · showing last snapshot' : state.snapshot.mode === 'loading' ? 'Reading local usage' : state.snapshot.mode === 'preview data' ? 'Preview data · awaiting local connection' : 'Your local usage, connected';
+  document.querySelector('#connection-title').textContent = state.syncError ? 'Sync unavailable · showing last snapshot' : state.snapshot.mode === 'loading' ? 'Reading local usage' : state.snapshot.mode === 'preview data' ? 'Preview data · awaiting local connection' : 'Connected to your local tools';
   document.querySelector('.connection-banner').classList.toggle('is-preview', Boolean(state.syncError) || state.snapshot.mode === 'preview data');
 }
 
 function currentSubscriptions() {
   const accounts = currentCodexAccounts().map((account, index) => ({ ...account, providerId: 'codex', identityTag: `C${index + 1}` }));
-  const claude = state.snapshot.limits?.claude;
-  if (claude && (claude.connected || claude.limits?.length || claude.planSource === 'providerReported')) {
+  for (const claude of currentClaudeAccounts().slice().reverse()) {
+    if (!(claude.connected || claude.limits?.length || claude.planSource === 'providerReported')) continue;
     accounts.unshift({
-      id: 'claude-subscription', providerId: 'claude', identityTag: '✳', profile: 'Claude Code',
+      id: claude.id || 'claude-subscription', providerId: 'claude', identityTag: '✳', profile: claude.profile || 'Claude Code',
       plan: claude.plan, planSource: claude.planSource, connected: claude.connected,
-      exact: claude.planSource === 'providerReported', rateStale: claude.stale, rateFetchedAt: claude.fetchedAt,
+      exact: Boolean(claude.fetchedAt), rateStale: claude.stale, rateFetchedAt: claude.fetchedAt,
+      bankedResets: claude.bankedResets,
       windows: (claude.limits || []).map(window => ({ ...window, remainingPercent: window.remaining })),
       sourceMessage: claude.message, sourceNote: claude.note, nextRetryAt: claude.nextRetryAt
     });
   }
   return accounts;
+}
+
+function renderCapacitySummary() {
+  const target = document.querySelector('#capacity-summary');
+  if (!target) return;
+  const accounts = currentSubscriptions();
+  const available = accounts.map(accountAvailability);
+  const ready = available.filter(item => !item.uncertain && !item.stale && item.remaining > 0).length;
+  const resets = accounts.flatMap(account => (account.windows || []).map(window => ({ ...window, profile: account.profile }))).filter(window => Number(window.resetsAt) * 1000 > Date.now()).sort((a, b) => a.resetsAt - b.resetsAt);
+  const banked = creditSummary().bankedResets;
+  target.innerHTML = `<div><span class="capacity-indicator"></span><strong>${ready}</strong><span>account${ready === 1 ? '' : 's'} with headroom</span></div><div><span class="icon">${icon('clock')}</span><span>Next reset</span><strong>${resets[0] ? escapeHtml(resetLabel(resets[0].resetsAt).replace('resets in ', 'in ')) : 'Not reported'}</strong></div>${banked !== null ? `<div><span class="icon">${icon('refresh')}</span><strong>${banked}</strong><span>banked reset${banked === 1 ? '' : 's'}</span></div>` : ''}`;
 }
 
 function renderCodexAccounts() {
@@ -564,14 +584,14 @@ function renderCodexAccounts() {
     const status = account.rateStale ? 'Cached limits' : account.exact ? 'Provider reported' : 'Partial snapshot';
     const source = `${status} · Last checked ${snapshotAge(account.rateFetchedAt)}`;
     const facts = claude
-      ? `<p>${escapeHtml(account.sourceNote || 'Claude subscription')}</p>${account.sourceMessage ? `<p>${escapeHtml(account.sourceMessage)}</p>` : ''}${account.nextRetryAt ? `<p>Next refresh ${escapeHtml(formatResetDate(account.nextRetryAt / 1000))}</p>` : ''}`
+      ? `<div class="subscription-facts"><div><span>Banked resets</span><strong>${banked}</strong></div></div><p>${escapeHtml(account.sourceNote || 'Claude subscription')}</p>${account.sourceMessage ? `<p>${escapeHtml(account.sourceMessage)}</p>` : ''}${account.nextRetryAt ? `<p>Next refresh ${escapeHtml(formatResetDate(account.nextRetryAt / 1000))}</p>` : ''}`
       : `<div class="subscription-facts"><div><span>Selected-period tokens</span><strong>${account.usageExact === false && !account.usageStale ? 'Not reported' : formatTokens(account.rangeTokens)}</strong>${account.usageStale ? '<small>Cached usage</small>' : ''}</div><div><span>Usage credits</span><strong>${credits}</strong></div><div><span>Banked resets</span><strong>${banked}</strong></div><div><span>Connection</span><strong>${account.connected ? 'Connected' : 'Unavailable'}</strong></div></div>`;
     const windows = (account.windows || []).map(window => {
       const value = windowRemaining(window);
       return `<div class="codex-window ${value === null ? 'unknown' : value < 20 ? 'low' : 'ready'}"><div class="codex-window-top"><span class="codex-window-name">${escapeHtml(window.label || window.tag || 'Current window')}</span><strong class="codex-window-remaining">${value === null ? 'Not reported' : `${displayPercent(value)}% left`}</strong></div><div class="codex-window-track" role="${value === null ? 'img' : 'meter'}" aria-label="${escapeHtml(window.label || 'Current window')} remaining" ${value === null ? '' : `aria-valuenow="${value}" aria-valuemin="0" aria-valuemax="100"`}><span style="--remaining:${value ?? 0}%"></span></div><div class="codex-window-meta"><span>${value === null ? 'Awaiting refresh' : `${100 - displayPercent(value)}% used`}</span><span>${escapeHtml(resetLabel(window.resetsAt))}</span></div>${window.resetsAt ? `<time class="window-exact-reset">${escapeHtml(formatResetDate(window.resetsAt))}</time>` : ''}</div>`;
     }).join('') || '<p class="empty-copy">No current allowance reported.</p>';
-    return `<article class="codex-account-card subscription-card ${tone} ${claude ? 'claude-subscription' : ''}" data-subscription-id="${escapeHtml(account.id || account.profile)}" data-subscription-provider="${account.providerId}"><div class="subscription-top"><div class="codex-account-identity"><span class="account-number">${account.identityTag}</span><span class="codex-account-copy"><strong>${claude ? 'Claude Code' : 'Codex'}</strong>${claude ? '' : `<small>${escapeHtml(account.profile)}</small>`}</span></div><span class="codex-plan-pill" title="${account.planSource === 'providerReported' ? 'Provider-reported subscription' : account.planSource === 'fallback' ? 'Configured plan' : 'Subscription not reported'}">${escapeHtml(planLabel(account.plan))}${account.planSource === 'fallback' ? ' · configured' : ''}</span></div><div class="subscription-hero">${limitRing(remaining, tone)}<div class="allowance-copy"><span class="allowance-state ${tone}"><i></i>${label}</span><strong>${escapeHtml(tightest?.label || tightest?.tag || 'No current window')}</strong></div></div><div class="codex-window-list">${windows}</div><details class="subscription-source-details"><summary>${escapeHtml(source)}</summary>${facts}</details></article>`;
-  }).join('') || '<p class="empty-copy">No subscriptions detected. Sync to check your accounts.</p>';
+    return `<article class="codex-account-card subscription-card ${tone} ${claude ? 'claude-subscription' : ''}" data-subscription-id="${escapeHtml(account.id || account.profile)}" data-subscription-provider="${account.providerId}"><div class="subscription-top"><div class="codex-account-identity"><span class="account-number">${account.identityTag}</span><span class="codex-account-copy"><strong>${claude ? 'Claude Code' : 'Codex'}</strong><small>${escapeHtml(account.profile)}</small></span></div><span class="codex-plan-pill" title="${account.planSource === 'providerReported' ? 'Provider-reported subscription' : account.planSource === 'fallback' ? 'Configured plan' : 'Subscription not reported'}">${escapeHtml(planLabel(account.plan))}${account.planSource === 'fallback' ? ' · configured' : ''}</span></div><div class="subscription-hero">${limitRing(remaining, tone)}<div class="allowance-copy"><span class="allowance-state ${tone}"><i></i>${label}</span><strong>${escapeHtml(tightest?.label || tightest?.tag || 'No current window')}</strong>${bankedResetBadge(account)}</div></div><div class="codex-window-list">${windows}</div><details class="subscription-source-details"><summary>${escapeHtml(source)}</summary>${facts}</details></article>`;
+  }).join('') || '<div class="provider-empty"><span class="icon">' + icon('plus') + '</span><h3>Bring your coding tools together.</h3><p>Add a signed-in Codex or Claude profile to see live capacity and resets.</p><button class="secondary-button" type="button" data-open-provider-setup>Connect providers</button></div>';
   for (const card of container.querySelectorAll('[data-subscription-id]')) {
     const detail = card.querySelector('details');
     if (detail && expanded.has(card.dataset.subscriptionId)) detail.open = true;
@@ -579,6 +599,7 @@ function renderCodexAccounts() {
 }
 
 function renderLimits() {
+  renderCapacitySummary();
   renderCodexAccounts();
   const providers = currentLimitProviders().filter((provider) => !['codex', 'claude'].includes(provider.id));
   document.querySelector('#limits-grid').innerHTML = providers.map((provider) => {
@@ -731,7 +752,7 @@ function renderCompactView() {
   document.querySelector('#compact-period').textContent = `${selectedPeriodLabel()} · API estimate`;
   document.querySelector('#compact-status').innerHTML = `<div><span>Processed tokens</span><strong>${formatTokens(summary.processedTokens)}</strong></div><div><span>Cache savings</span><strong>${formatCurrency(summary.estimatedUncachedValueAvoided ?? summary.cacheSavings)}</strong></div><div><span>Sessions</span><strong>${summary.activeSessions || 0}</strong></div>`;
   document.querySelector('#compact-limits-title').textContent = 'Subscription usage';
-  document.querySelector('#compact-headroom').innerHTML = accountLimits.length ? accountLimits.map((account) => `<div class="compact-account-limit" data-provider-id="${escapeHtml(account.providerId)}"><div class="compact-account-identity"><span aria-label="${escapeHtml(account.identityTag)}">${account.providerId === 'claude' ? '✳' : escapeHtml(account.identityTag)}</span><span><strong>${escapeHtml(account.profile)}</strong><small>${escapeHtml(account.plan)}</small></span></div><div class="compact-account-windows">${account.windows.length ? account.windows.map((window) => `<div class="compact-window-limit"><div class="compact-window-line"><span><i>${escapeHtml(window.tag)}</i><small>${escapeHtml(window.reset)}</small></span><b class="${window.remaining !== null && window.remaining < 20 ? 'is-low' : ''}">${window.remaining === null ? '—' : `${window.displayRemaining}%`}</b></div><div class="compact-window-meter ${window.remaining !== null && window.remaining < 20 ? 'is-low' : ''}"><span style="width:${window.remaining ?? 0}%"></span></div></div>`).join('') : '<small class="compact-unreported">No current limit reported</small>'}</div></div>`).join('') : '<p class="empty-copy">No account limits reported.</p>';
+  document.querySelector('#compact-headroom').innerHTML = accountLimits.length ? accountLimits.map((account) => `<div class="compact-account-limit" data-provider-id="${escapeHtml(account.providerId)}"><div class="compact-account-identity"><span aria-label="${escapeHtml(account.identityTag)}">${account.providerId === 'claude' ? '✳' : escapeHtml(account.identityTag)}</span><span><strong>${escapeHtml(account.profile)}</strong><small>${escapeHtml(account.plan)}</small>${bankedResetBadge(account, true)}</span></div><div class="compact-account-windows">${account.windows.length ? account.windows.map((window) => `<div class="compact-window-limit"><div class="compact-window-line"><span><i>${escapeHtml(window.tag)}</i><small>${escapeHtml(window.reset)}</small></span><b class="${window.remaining !== null && window.remaining < 20 ? 'is-low' : ''}">${window.remaining === null ? '—' : `${window.displayRemaining}%`}</b></div><div class="compact-window-meter ${window.remaining !== null && window.remaining < 20 ? 'is-low' : ''}"><span style="width:${window.remaining ?? 0}%"></span></div></div>`).join('') : '<small class="compact-unreported">No current limit reported</small>'}</div></div>`).join('') : '<p class="empty-copy">No account limits reported.</p>';
   document.querySelector('#compact-alerts').innerHTML = alerts.length ? alerts.map((item) => `<button class="compact-alert ${item.level}" type="button" data-target="${item.target}"><span class="icon">${icon(item.icon)}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span></button>`).join('') : '<div class="compact-clear"><span class="icon">' + icon('check') + '</span><span>Nothing needs attention</span></div>';
   hydrateIcons(document.querySelector('#compact-dashboard'));
   reportTrayStatus();
@@ -820,9 +841,10 @@ function showToast(message) {
 
 function updateSyncLabels() {
   if (hasRendered && !isSurfaceVisible()) return;
-  const elapsed = Math.max(0, Math.floor((Date.now() - (state.snapshot.fetchedAt || Date.now())) / 1000));
+  const updatedAt = Math.max(Number(state.snapshot.fetchedAt) || 0, Number(state.snapshot.allowanceFetchedAt) || 0);
+  const elapsed = Math.max(0, Math.floor((Date.now() - (updatedAt || Date.now())) / 1000));
   const label = elapsed < 5 ? 'Updated just now' : elapsed < 60 ? `Updated ${elapsed}s ago` : `Updated ${Math.floor(elapsed / 60)}m ago`;
-  document.querySelector('#topbar-sync-label').textContent = state.syncError ? 'Sync unavailable' : state.snapshot.mode === 'loading' ? 'Reading local sources…' : label;
+  document.querySelector('#topbar-sync-label').textContent = state.syncError ? 'Sync unavailable' : state.snapshot.mode === 'loading' && !state.snapshot.allowanceFetchedAt ? 'Reading local sources…' : label;
   const time = new Date(state.snapshot.fetchedAt || Date.now()).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   document.querySelector('#last-sync-text').textContent = state.snapshot.fetchedAt ? `LAST SYNC ${time}` : 'WAITING FOR FIRST SYNC';
   document.querySelector('#next-poll').textContent = formatCountdown(state.secondsToPoll);
@@ -863,15 +885,18 @@ async function syncUsage({ quiet = false } = {}) {
   if (state.syncing) return;
   const requestedRange = state.range;
   setSyncing(true);
+  if (!quiet && providerSetupLoaded) void syncAllowances(true);
   try {
     const response = await fetch(`/api/usage?days=${requestedRange}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('Usage endpoint unavailable');
     const payload = preserveLastValidAccountUsage(await response.json());
     if (state.range !== requestedRange) return;
+    const currentAllowanceAt = Number(state.snapshot.allowanceFetchedAt) || 0;
     state.snapshot = payload;
+    if (latestAllowances && Number(latestAllowances.fetchedAt) >= Math.max(currentAllowanceAt, Number(payload.allowanceFetchedAt) || 0)) applyAllowances(latestAllowances);
     state.syncError = false;
     renderAll();
-    if (!quiet) showToast(payload.mode.includes('session cache') ? 'Local usage cache synced' : 'All providers synced');
+    if (!quiet) showToast(payload.refreshing ? 'Refreshing usage history. Live limits are updating.' : 'Usage refreshed');
   } catch (error) {
     if (state.range !== requestedRange) return;
     state.syncError = true;
@@ -882,7 +907,7 @@ async function syncUsage({ quiet = false } = {}) {
     renderAll();
     if (!quiet) showToast('Sync unavailable. Keeping the last snapshot; try again shortly.');
   } finally {
-    state.secondsToPoll = state.settings.pollSeconds;
+    state.secondsToPoll = state.snapshot.refreshing ? 2 : state.settings.pollSeconds;
     setSyncing(false);
     updateSyncLabels();
     if (state.range !== requestedRange) syncUsage({ quiet: true });
@@ -1073,7 +1098,7 @@ function setupInteractions() {
     showToast(state.paused ? 'Live polling paused' : 'Live polling resumed');
   });
   document.querySelector('#live-toggle').addEventListener('click', () => document.querySelector('#pause-live').click());
-  document.querySelector('#manage-accounts').addEventListener('click', () => openTarget('#limits'));
+  document.querySelector('#manage-accounts').addEventListener('click', () => openProviderSetup());
   document.querySelector('#limit-help').addEventListener('click', () => {
     setPanel('settings-panel');
     document.querySelector('#limit-definitions').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1210,11 +1235,136 @@ function setupInteractions() {
   });
 }
 
+let providerSetupLoaded = false;
+let latestAllowances = null;
+let allowanceRequest = null;
+let providerSetupRequest = null;
+
+function applyAllowances(payload) {
+  if (Number(payload.fetchedAt) < Number(state.snapshot.allowanceFetchedAt || 0)) return;
+  latestAllowances = payload;
+  state.snapshot = { ...state.snapshot, codexAccounts: (payload.codexAccounts || []).map(account => {
+    const history = state.snapshot.codexAccounts?.find(previous => previous.id === account.id);
+    return { ...history, ...account, rangeTokens: history?.rangeTokens, baselineTokens: history?.baselineTokens };
+  }), claudeAccounts: payload.claudeAccounts || [], limits: { ...state.snapshot.limits, ...payload.limits }, allowanceFetchedAt: payload.fetchedAt };
+}
+
+async function syncAllowances(force = false) {
+  if (allowanceRequest) return allowanceRequest;
+  allowanceRequest = (async () => {
+    try {
+      const response = await fetch(`/api/allowances${force ? '?force=1' : ''}`, { cache: 'no-store' });
+      if (!response.ok) return;
+      const payload = await response.json();
+      applyAllowances(payload);
+      if (isSurfaceVisible()) {
+        renderLimits(); renderCapacitySummary(); renderCommandMetrics(); renderNotifications();
+        if (state.compactMode) renderCompactView();
+        hydrateIcons();
+      } else { renderQueued = true; reportTrayStatus(); }
+      if (payload.refreshing) allowanceRetryAt = Date.now() + 1200;
+    } catch { /* Keep the last provider snapshot during a connection failure. */ }
+  })();
+  try { await allowanceRequest; } finally { allowanceRequest = null; }
+}
+let allowanceRetryAt = 0;
+
+function providerError(message = '') {
+  const target = document.querySelector('#provider-error');
+  target.textContent = message; target.hidden = !message;
+}
+
+function renderDiscoveredProviders(payload) {
+  const providers = payload.providers || [];
+  const names = { codex: 'Codex', claude: 'Claude Code', opencode: 'OpenCode', cursor: 'Cursor', commandcode: 'Command Code' };
+  document.querySelector('#provider-dialog-title').textContent = providers.length ? 'Your tools. All in one place.' : 'Make room for your next idea.';
+  document.querySelector('#discovered-providers').innerHTML = providers.length ? providers.map(item => `<label class="discovered-provider ${item.enabled ? '' : 'is-disabled'}">${renderProviderGlyph(item.provider)}<span><strong>${escapeHtml(item.name || names[item.provider])}</strong><small>${escapeHtml(names[item.provider])} · ${escapeHtml(item.source)}${item.configExists ? '' : ' · Folder not found'}</small><code title="${escapeHtml(item.home)}">${escapeHtml(item.home)}</code></span><input type="checkbox" data-provider-toggle="${escapeHtml(item.id)}" ${item.enabled ? 'checked' : ''} aria-label="Enable ${escapeHtml(item.name)}" /></label>`).join('') : '<div class="discovery-empty"><strong>No local profiles found yet.</strong><p>Sign in with your coding CLI, then scan again. You can also add a custom configuration folder below.</p></div>';
+  document.querySelector('#finish-provider-setup').textContent = payload.setupComplete ? 'Done' : 'Open dashboard';
+  document.querySelector('#add-provider-details').open = !providers.length;
+}
+
+async function loadProviderSetup(scan = false) {
+  if (providerSetupRequest) return providerSetupRequest;
+  providerSetupRequest = (async () => {
+    const button = document.querySelector('#rescan-providers');
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/providers${scan ? '?scan=1' : ''}`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('Provider discovery is unavailable. Make sure the local Pulse server is running.');
+      const payload = await response.json();
+      renderDiscoveredProviders(payload); providerError();
+      providerSetupLoaded = true;
+      if (!payload.setupComplete && !isDesktopTraySurface) openProviderSetup(false);
+      return payload;
+    } catch (error) { providerError(error.message); }
+    finally { button.disabled = false; }
+  })();
+  try { return await providerSetupRequest; } finally { providerSetupRequest = null; }
+}
+
+function openProviderSetup(refresh = true) {
+  if (isDesktopTraySurface) { window.pulseDesktop?.openMainWindow('#accounts'); return; }
+  setPanel(null);
+  const dialog = document.querySelector('#provider-dialog');
+  if (!dialog.open) dialog.showModal();
+  if (refresh) void loadProviderSetup();
+}
+
+async function saveProviderAction(action) {
+  const response = await fetch('/api/providers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action) });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || 'Could not save provider settings.');
+  renderDiscoveredProviders(payload); providerError();
+  latestAllowances = null;
+  state.snapshot.allowanceFetchedAt = 0;
+  void syncAllowances(true);
+  return payload;
+}
+
+function setupProviderInteractions() {
+  document.querySelector('#provider-setup-button').addEventListener('click', () => openProviderSetup());
+  document.querySelector('#codex-accounts-grid').addEventListener('click', event => { if (event.target.closest('[data-open-provider-setup]')) openProviderSetup(); });
+  document.querySelector('#close-provider-dialog').addEventListener('click', () => document.querySelector('#provider-dialog').close());
+  document.querySelector('#rescan-providers').addEventListener('click', () => { providerError(); void loadProviderSetup(true).then(() => syncAllowances(true)); });
+  document.querySelector('#finish-provider-setup').addEventListener('click', async event => {
+    event.currentTarget.disabled = true;
+    try { await saveProviderAction({ type: 'complete' }); document.querySelector('#provider-dialog').close(); void syncUsage({ quiet: true }); }
+    catch (error) { providerError(error.message); }
+    finally { document.querySelector('#finish-provider-setup').disabled = false; }
+  });
+  document.querySelector('#discovered-providers').addEventListener('change', async event => {
+    if (!event.target.dataset.providerToggle) return;
+    const checkbox = event.target; checkbox.disabled = true;
+    try { await saveProviderAction({ type: 'toggle', id: checkbox.dataset.providerToggle, enabled: checkbox.checked }); }
+    catch (error) { checkbox.checked = !checkbox.checked; providerError(error.message); }
+    finally { checkbox.disabled = false; }
+  });
+  document.querySelector('#provider-kind').addEventListener('change', event => {
+    const provider = event.target.value;
+    document.querySelector('#provider-home').placeholder = provider === 'codex' ? '~/.codex-work' : provider === 'claude' ? '~/.claude-work' : '~/.config/opencode';
+    document.querySelector('#provider-command').placeholder = provider;
+    document.querySelector('#provider-home-help').textContent = provider === 'opencode' ? 'The folder containing opencode.json. OpenCode exposes local history; subscription limits may be unavailable.' : 'The CLI home containing your existing configuration and sign-in.';
+  });
+  document.querySelector('#provider-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = document.querySelector('#save-provider'); button.disabled = true;
+    try {
+      await saveProviderAction({ type: 'add', provider: document.querySelector('#provider-kind').value, name: document.querySelector('#provider-name').value, home: document.querySelector('#provider-home').value, command: document.querySelector('#provider-command').value });
+      event.target.reset(); document.querySelector('#add-provider-details').open = false;
+      showToast('Provider added. Checking its connection.');
+    } catch (error) { providerError(error.message); }
+    finally { button.disabled = false; }
+  });
+}
+
 function startPolling() {
   setInterval(() => {
     if (!state.paused) {
       state.secondsToPoll -= 1;
       if (state.secondsToPoll <= 0) { state.secondsToPoll = state.settings.pollSeconds; syncUsage({ quiet: true }); }
+    }
+    if (!state.paused && providerSetupLoaded && ((allowanceRetryAt && Date.now() >= allowanceRetryAt) || state.secondsToPoll % 5 === 0)) {
+      allowanceRetryAt = 0; void syncAllowances();
     }
     updateSyncLabels();
   }, 1000);
@@ -1224,6 +1374,8 @@ function startPolling() {
 hydrateIcons();
 renderAll();
 setupInteractions();
+setupProviderInteractions();
+void loadProviderSetup().then(() => syncAllowances());
 setupNavigation();
 setupChartTooltip();
 window.pulseDesktop?.onNavigate?.((selector) => openTarget(selector));

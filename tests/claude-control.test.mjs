@@ -97,3 +97,16 @@ test('spawn and early process failures resolve unavailable without leaking error
   const f = fixture((request, child) => { child.exitCode = 1; child.emit('close', 1); });
   assert.deepEqual(await readClaudeUsage({ spawnImpl: f.spawnImpl }), { payload: null, reason: 'unavailable', retryAfterSeconds: null });
 });
+
+test('new meter rows and banked resets survive the collector allowlist without private fields', async () => {
+  const f = fixture((request, child) => reply(child, request, request.request.subtype === 'initialize' ? {} : {
+    banked_resets: 3, token: 'private-token', rate_limits: { limits: [
+      { kind: 'session', percent: 45, resets_at: '2026-11-01T05:00:00Z', account: 'private-account' },
+      { kind: 'weekly_all', percent: -1, resets_at: null }
+    ] }
+  }));
+  const result = await readClaudeUsage({ spawnImpl: f.spawnImpl });
+  assert.equal(result.payload.bankedResets, 3);
+  assert.deepEqual(result.payload.rate_limits.limits, [{ kind: 'session', percent: 45, resets_at: '2026-11-01T05:00:00Z' }]);
+  assert.ok(!JSON.stringify(result).includes('private-'));
+});

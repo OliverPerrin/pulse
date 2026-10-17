@@ -94,18 +94,22 @@ Pulse currently includes the existing account, model, history, token, cost, cred
 
 The server reads local transcripts and usage metadata to extract aggregate statistics. It does not expose authentication files or tokens. Codex and Claude records are aggregated from the local T3 transcript cache and priced with the same LiteLLM per-model rate table and cache arithmetic used by T3 Code. The result is an API cost estimate, not subscription spend. Command Code is aggregated from structured local transcripts, and OpenCode is queried through its read-only `stats` command. Cursor stays visible as a connected adapter but contributes no fabricated tokens or cost because its local ACP metadata does not expose usage totals.
 
-Codex account windows and range usage are read from the three homes currently listed in `server.mjs`: `~/.codex`, `~/.codex_alt`, and `~/.codex_alt2` through the CLI app-server's read-only `account/rateLimits/read` and `account/usage/read` methods. The default homes are displayed as `.codex`, `.codex-alt`, and `.codex-alt2`, while the filesystem paths remain server-side. Custom home discovery is not yet implemented; edit `codexAccountBlueprints` in `server.mjs` to change the list. Pulse reconciles those three account totals with locally priced transcripts and includes any account-reported usage missing from the transcript scan, using the observed blended model rate only for that uncovered remainder.
+On first launch, Pulse discovers standard and alternate Codex/Claude homes, `CODEX_HOME` and `CLAUDE_CONFIG_DIR` in the terminal environment and shell configuration files, installed provider executables, and supported provider entries in T3 Code settings. Shell files are read as text and are never executed. The Providers screen lets you rescan, enable or disable profiles, and add a custom Codex, Claude, or OpenCode configuration folder and executable. It uses existing CLI sign-ins; Pulse does not collect credentials. Detection means a configuration or executable was found, not that authentication succeeded.
+
+Provider selections and setup completion are stored in `~/.config/pulse/providers.json`, shared by localhost and Electron. `PULSE_PROVIDER_CONFIG_PATH` can point to an isolated settings file for verification. Each Codex and Claude profile has independent allowance and reset data. Codex windows and historical usage use the CLI's read-only `account/rateLimits/read` and `account/usage/read` methods. Pulse reconciles account totals with locally priced transcripts and estimates only the uncovered remainder at the observed blended model rate.
+
+Banked resets use Codex's top-level `rateLimitResetCredits.availableCount`, independently of usage credits and remaining quota. Explicit zeroes are preserved. Counts appear on account cards and in the compact view, with cached balances labelled. Claude reset counts are displayed only if its usage response explicitly reports them; the currently installed CLI does not expose a banked-reset field. Pulse does not infer a balance from subscription type, overage spend, or an exhausted window.
 
 Rate limits and account usage arrive through separate CLI responses. Pulse caches the last valid response for each channel for up to 24 hours, so a transient partial poll cannot turn a populated account into zero usage; cached values are explicitly labeled in the interface until a fresh snapshot returns.
 
 ## Polling and caching
 
-Both desktop surfaces — the main window and the menu-bar popover — poll `/api/usage` independently, so the server memoises each source for slightly less than one poll interval and collapses concurrent requests onto a single pass. The defaults can be overridden with environment variables:
+Both desktop surfaces share the same sync behavior. Live allowances use `/api/allowances`, returning persisted or current evidence immediately while one provider refresh runs in the background. History uses `/api/usage`; after its first load, it returns the latest assembled history while one background refresh runs. Slow history scans no longer block quota cards. The default UI refresh interval is five seconds; Codex probes are cached for ten seconds and Claude usage for one minute, with provider cooldowns respected. Concurrent requests share their in-flight work. The defaults can be overridden with environment variables:
 
 | Variable | Default | Covers |
 | --- | --- | --- |
-| `PULSE_SNAPSHOT_TTL_MS` | `4000` | The assembled snapshot, including de-duplication of simultaneous requests |
-| `PULSE_CODEX_TTL_MS` | `10000` | The three `codex app-server` rate-limit and usage probes |
+| `PULSE_SNAPSHOT_TTL_MS` | `15000` | History snapshot background refresh interval and concurrent request de-duplication |
+| `PULSE_CODEX_TTL_MS` | `10000` | Discovered `codex app-server` rate-limit and usage probes |
 | `PULSE_OPENCODE_TTL_MS` | `60000` | The `opencode stats` invocation |
 
 Transcripts are streamed and pre-filtered on raw bytes rather than read into memory, so a multi-hundred-megabyte Codex rollout costs a bounded amount of memory to scan. Command Code transcripts are parsed once per file and reused until the file's size or mtime changes. Dashboard assets are served with an `ETag`, so a reload revalidates instead of re-downloading.
