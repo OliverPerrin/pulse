@@ -48,7 +48,11 @@
       "desktop/**/*",
       "marketing/**/*",
       "Pulse-icon.icon/**/*",
-      "package.json"
+      "package.json",
+      "provider-registry.mjs",
+      "reset-credits.mjs",
+      "app-theme.css",
+      "snapshot-cache.mjs"
     ],
     "mac": {
       "category": "public.app-category.utilities",

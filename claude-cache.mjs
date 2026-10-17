@@ -47,7 +47,7 @@ export function createClaudeUsageMonitor({ collect, load = async () => null, sav
         : 'Claude usage refresh is unavailable. Pulse will retry automatically.';
     return result;
   }
-  return async function read(subscription) {
+  const read = async function read(subscription) {
     await initialize();
     if (!subscription?.connected) {
       // A failed CLI status probe is not an explicit logout. Keep both the
@@ -70,7 +70,7 @@ export function createClaudeUsageMonitor({ collect, load = async () => null, sav
       try { response = await collect(); } catch { response = { reason: 'unavailable' }; }
       const fetchedAt = clock();
       const normalized = normalizeClaudeUsage(response?.payload, { subscription, now: fetchedAt, source: 'claude_code' });
-      if (normalized.limits?.some(window => window.reported)) {
+      if (normalized.limits?.some(window => window.reported) || normalized.bankedResets !== null) {
         lastGood = normalized; reason = null; retryAt = 0; freshUntil = fetchedAt + ttlMs;
       } else {
         reason = reasons.has(response?.reason) ? response.reason : 'unavailable';
@@ -83,4 +83,7 @@ export function createClaudeUsageMonitor({ collect, load = async () => null, sav
     })();
     try { await inFlight; return view(subscription); } finally { inFlight = null; }
   };
+  // Initial UI paint reads persisted evidence without waiting on a CLI process.
+  read.peek = async () => { await initialize(); return view(lastGood || {}); };
+  return read;
 }

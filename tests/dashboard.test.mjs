@@ -82,6 +82,43 @@ function loadSyncDashboard() {
 
 const flushAsyncWork = () => new Promise((resolve) => setImmediate(resolve));
 
+test('banked resets stay visible on main and compact cards, including an explicit zero', () => {
+  const account = { ...accountFixture('work', [{ tag: '5H', remainingPercent: 10, resetsAt: futureReset() }]), bankedResets: 3 };
+  const ui = loadDashboard([account]);
+  ui.renderCodexAccounts(); ui.renderCompactView();
+  assert.match(ui.nodes.get('#codex-accounts-grid').innerHTML, /<strong>3<\/strong> banked resets/);
+  assert.match(ui.nodes.get('#compact-headroom').innerHTML, /<strong>3<\/strong> banked resets/);
+  ui.state.snapshot.codexAccounts[0].bankedResets = 0;
+  ui.renderCodexAccounts();
+  assert.match(ui.nodes.get('#codex-accounts-grid').innerHTML, /<strong>0<\/strong> banked resets/);
+});
+
+test('multiple Claude profiles retain distinct identities, reset balances, and alert windows', () => {
+  const ui = loadDashboard();
+  ui.state.snapshot.claudeAccounts = [
+    { id: 'personal', profile: 'Personal', connected: true, bankedResets: 2, limits: [{ tag: '5H', remaining: 10, resetsAt: futureReset() }] },
+    { id: 'work', profile: 'Work', connected: true, bankedResets: 0, limits: [{ tag: '7D', remaining: 80, resetsAt: futureReset() }] }
+  ];
+  ui.renderCodexAccounts(); ui.renderCompactView();
+  assert.equal(ui.currentAccountLimits().length, 2);
+  assert.deepEqual(Array.from(ui.currentHeadroom(), window => window.provider), ['Personal', 'Work']);
+  assert.match(ui.nodes.get('#codex-accounts-grid').innerHTML, /<strong>2<\/strong> banked resets/);
+  assert.match(ui.nodes.get('#compact-headroom').innerHTML, /Personal/);
+  assert.match(ui.nodes.get('#compact-headroom').innerHTML, /Work/);
+});
+
+test('a slower history response cannot replace newer quota while selected-range tokens stay current', async () => {
+  const ui = loadSyncDashboard();
+  const fresh = { ...accountFixture('work', [{ tag: '5H', remainingPercent: 90, resetsAt: futureReset() }]), rangeTokens: 100 };
+  ui.context.allowancePayload = { fetchedAt: 300, codexAccounts: [fresh], claudeAccounts: [], limits: {} };
+  vm.runInContext('applyAllowances(allowancePayload)', ui.context);
+  const sync = ui.syncUsage({ quiet: true });
+  ui.requests[0].resolve({ ok: true, json: async () => ({ fetchedAt: 100, allowanceFetchedAt: 200, mode: 'local', codexAccounts: [{ ...fresh, rangeTokens: 250, windows: [{ tag: '5H', remainingPercent: 10 }] }], daily: [], providers: [], summary: {} }) });
+  await sync;
+  assert.equal(ui.state.snapshot.codexAccounts[0].windows[0].remainingPercent, 90);
+  assert.equal(ui.state.snapshot.codexAccounts[0].rangeTokens, 250);
+});
+
 function loadDesktop() {
   const handlers = new Map();
   const presentation = {};

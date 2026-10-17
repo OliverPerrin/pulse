@@ -164,7 +164,7 @@ async function createMainWindow() {
     minWidth: restored.minWidth,
     minHeight: restored.minHeight,
     show: false,
-    backgroundColor: '#090a0d',
+    backgroundColor: '#15171c',
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     trafficLightPosition: isMac ? { x: 17, y: 19 } : undefined,
     icon: iconPath(),
@@ -472,27 +472,33 @@ async function bootstrap() {
         }
       })()
     `)));
+    if (smokeScreenshotsDir) {
+      mkdirSync(smokeScreenshotsDir, { recursive: true });
+      const onboarding = await mainWindow.webContents.executeJavaScript(`document.querySelector('#provider-dialog').open`);
+      if (onboarding) writeFileSync(path.join(smokeScreenshotsDir, 'pulse-setup.png'), (await mainWindow.webContents.capturePage()).toPNG());
+    }
+    await mainWindow.webContents.executeJavaScript(`document.querySelector('#provider-dialog').close()`);
     await mainWindow.webContents.executeJavaScript(`document.querySelector('.brand').style.transition = 'none'`);
     mainWindow.webContents.send('pulse:fullscreen-changed', true);
     await new Promise((resolve) => setTimeout(resolve, 25));
     const fullscreenLogoProbe = await mainWindow.webContents.executeJavaScript(`({
       fullscreenClass: document.body.classList.contains('desktop-fullscreen'),
-      transform: getComputedStyle(document.querySelector('.brand')).transform
+      top: document.querySelector('.brand').getBoundingClientRect().top
     })`);
     mainWindow.webContents.send('pulse:fullscreen-changed', false);
     await new Promise((resolve) => setTimeout(resolve, 25));
     const windowedLogoProbe = await mainWindow.webContents.executeJavaScript(`({
       fullscreenClass: document.body.classList.contains('desktop-fullscreen'),
-      transform: getComputedStyle(document.querySelector('.brand')).transform
+      top: document.querySelector('.brand').getBoundingClientRect().top
     })`);
     const [mainProbe, trayProbe] = await Promise.all([
       mainWindow.webContents.executeJavaScript(`({
         bridgeReady: Boolean(window.pulseDesktop),
         nodeIsolated: typeof window.require === 'undefined' && typeof window.process === 'undefined',
         desktopSurface: document.body.classList.contains('desktop-app-surface'),
-        snapshotLoaded: document.querySelector('#connection-title')?.textContent === 'Your local usage, connected',
+        snapshotLoaded: document.querySelector('#connection-title')?.textContent === 'Connected to your local tools',
         snapshotTitle: document.querySelector('#connection-title')?.textContent,
-        logoOffsetReady: getComputedStyle(document.querySelector('.brand')).transform !== 'none'
+        logoOffsetReady: document.querySelector('.brand').getBoundingClientRect().top >= 58
       })`),
       trayWindow.webContents.executeJavaScript(`({
         bridgeReady: Boolean(window.pulseDesktop),
@@ -546,9 +552,9 @@ async function bootstrap() {
       liveSnapshotReady: mainProbe.snapshotLoaded && trayProbe.snapshotLoaded,
       mainBridgeReady: mainProbe.bridgeReady && mainProbe.desktopSurface && mainProbe.logoOffsetReady,
       fullscreenLogoResponsive: fullscreenLogoProbe.fullscreenClass
-        && fullscreenLogoProbe.transform === 'matrix(1, 0, 0, 1, 0, 0)'
+        && fullscreenLogoProbe.top >= 0 && fullscreenLogoProbe.top < 58
         && !windowedLogoProbe.fullscreenClass
-        && windowedLogoProbe.transform !== fullscreenLogoProbe.transform,
+        && windowedLogoProbe.top >= 58,
       windowResizeResponsive: resizeChecks.every((probe) => probe.noHorizontalOverflow && probe.navigationVisible),
       windowStatePersisted: JSON.stringify(persistedWindowState?.bounds) === JSON.stringify(mainWindow.getNormalBounds())
         && persistedWindowState?.maximized === mainWindow.isMaximized(),

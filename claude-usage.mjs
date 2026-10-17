@@ -1,5 +1,7 @@
 // Claude Code's read-only get_usage control response reports utilization as a
 // percentage. Only allowlisted display data crosses into Pulse's snapshots.
+import { bankedResets } from './reset-credits.mjs';
+
 const quotaWindows = [
   { key: 'five_hour', label: '5 hour window', tag: '5H', windowDurationMins: 300 },
   { key: 'seven_day', label: 'Weekly window', tag: '7D', windowDurationMins: 10080 }
@@ -36,7 +38,14 @@ export function normalizeClaudeUsage(payload, { subscription = null, now = Date.
   const metadata = subscriptionMetadata(subscription);
   const timestamp = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
   const providerSource = source === 'claude_web' ? 'claude_web' : 'claude_code';
-  const rateLimits = payload?.rate_limits;
+  let rateLimits = payload?.rate_limits;
+  if (Array.isArray(rateLimits?.limits)) {
+    const session = rateLimits.limits.find(row => row.kind === 'session');
+    const weekly = rateLimits.limits.find(row => row.kind === 'weekly_all');
+    rateLimits = { ...rateLimits,
+      ...(session ? { five_hour: { utilization: session.percent, resets_at: session.resets_at } } : {}),
+      ...(weekly ? { seven_day: { utilization: weekly.percent, resets_at: weekly.resets_at } } : {}) };
+  }
   const limits = [];
   for (const { key, ...window } of quotaWindows) {
     const source = rateLimits?.[key];
@@ -63,9 +72,10 @@ export function normalizeClaudeUsage(payload, { subscription = null, now = Date.
       : reported.some((window) => window.remaining === 0) ? 'reached' : 'available';
   const result = {
     ...metadata,
+    bankedResets: bankedResets(payload) ?? bankedResets(payload?.rate_limits),
     source: providerSource,
     note: `${providerSource === 'claude_web' ? 'Claude usage page' : 'Claude Code'} · provider-reported usage`,
-    fetchedAt: limits.length ? timestamp : null,
+    fetchedAt: limits.length || bankedResets(payload) !== null || bankedResets(payload?.rate_limits) !== null ? timestamp : null,
     stale,
     status,
     unreported: !reported.length
@@ -88,7 +98,7 @@ export function markClaudeUsageStale(snapshot, { now = Date.now(), reason = 'una
       resets_at: window.resetsAt
     };
   }
-  const result = normalizeClaudeUsage({ rate_limits }, { subscription: snapshot, now: timestamp, source: snapshot?.source });
+  const result = normalizeClaudeUsage({ rate_limits, bankedResets: bankedResets(snapshot) }, { subscription: snapshot, now: timestamp, source: snapshot?.source });
   const priorFetchedAt = snapshot?.fetchedAt;
   result.fetchedAt = typeof priorFetchedAt === 'number' && Number.isFinite(priorFetchedAt) && priorFetchedAt > 0 ? priorFetchedAt : null;
   result.note = `${result.source === 'claude_web' ? 'Claude usage page' : 'Claude Code'} · cached provider usage`;
